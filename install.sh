@@ -54,13 +54,31 @@ if ! command -v certbot >/dev/null 2>&1; then
   fi
 fi
 
-# ── 3. Скачивание исходников ─────────────────────────────────────────────────
+# ── 3. Скачивание исходников (через tar-архив, чтобы выдержать любую структуру) ─
 echo "📥 Скачиваю файлы из GitHub…"
+TMP_DIR=$(mktemp -d)
+# GitHub отдаёт архив репозитория целиком — внутри inetometr-<sha>/ со всеми файлами
+curl -fsSL "https://codeload.github.com/${REPO}/tarball/refs/heads/${BRANCH}" -o "${TMP_DIR}/src.tar.gz"
+tar -xzf "${TMP_DIR}/src.tar.gz" -C "${TMP_DIR}"
+SRC_DIR=$(find "${TMP_DIR}" -maxdepth 1 -type d -name 'inetometr-*' | head -1)
+if [ -z "$SRC_DIR" ]; then
+  echo "❌ Не удалось распаковать архив репозитория"
+  exit 1
+fi
+
+# Очищаем старую установку и копируем свежие файлы
 mkdir -p "$INSTALL_DIR"
-for f in index.html styles.css app.js; do
-  curl -fsSL "https://raw.githubusercontent.com/${REPO}/${BRANCH}/${f}" -o "${INSTALL_DIR}/${f}"
-  echo "  ✓ ${f}"
-done
+rm -rf "${INSTALL_DIR:?}/"*
+cp -r "$SRC_DIR"/. "$INSTALL_DIR"/
+rm -rf "$TMP_DIR"
+echo "  ✓ $(ls "$INSTALL_DIR" | wc -l) файлов скопировано"
+
+# Устанавливаем владельца
+if id "www-data" >/dev/null 2>&1; then
+  chown -R www-data:www-data "$INSTALL_DIR"
+elif id "nginx" >/dev/null 2>&1; then
+  chown -R nginx:nginx "$INSTALL_DIR"
+fi
 
 # ── 4. Конфиг nginx ───────────────────────────────────────────────────────────
 echo "🛠  Создаю конфиг nginx для ${DOMAIN}…"

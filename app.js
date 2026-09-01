@@ -192,15 +192,29 @@ function resetChart() {
 
 function pushChartPoint(v) {
   state.chart.data.push(v);
-  if (state.chart.data.length > 120) state.chart.data.shift();
+  if (state.chart.data.length > 120) {
+    const removed = state.chart.data.shift();
+    state.chart.sum -= removed;
+    state.chart.count -= 1;
+  } else {
+    state.chart.count += 1;
+  }
   state.chart.max = Math.max(state.chart.max, v);
   state.chart.min = Math.min(state.chart.min, v);
   state.chart.sum += v;
-  state.chart.count += 1;
   els.chartMax.textContent = state.chart.max.toFixed(2);
   els.chartAvg.textContent = (state.chart.sum / state.chart.count).toFixed(2);
   els.chartMin.textContent = state.chart.min.toFixed(2);
   drawChart();
+}
+
+// Троттлинг pushChartPoint: обновление графика не чаще 12 раз в секунду (~80 мс)
+let _lastChartPush = 0;
+function pushChartPointThrottled(v) {
+  const now = performance.now();
+  if (now - _lastChartPush < 80) return;
+  _lastChartPush = now;
+  pushChartPoint(v);
 }
 
 // ---------- Tests ----------
@@ -236,6 +250,7 @@ async function downloadTest(onProgress) {
         if (!resp.ok) continue;
         const reader = resp.body.getReader();
         let received = 0;
+        let lastSample = 0;
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -244,7 +259,11 @@ async function downloadTest(onProgress) {
           if (elapsed > 0) {
             const mbps = (received * 8) / 1e6 / elapsed;
             onProgress(mbps);
-            allSpeeds.push(mbps);
+            // Сэмплируем не чаще раза в 200 мс — иначе массив раздувается
+            if (performance.now() - lastSample > 200) {
+              allSpeeds.push(mbps);
+              lastSample = performance.now();
+            }
           }
         }
         const totalElapsed = (performance.now() - t0) / 1000;
@@ -258,7 +277,6 @@ async function downloadTest(onProgress) {
     if (!worked) throw new Error(`Не удалось скачать ${bytes} байт`);
   }
   allSpeeds.sort((a, b) => a - b);
-  const cut = Math.floor(allSpeeds.length * 0.2);
   return allSpeeds[Math.floor(allSpeeds.length / 2)] || 0;
 }
 
@@ -299,7 +317,12 @@ async function uploadTest(onProgress) {
   const allSpeeds = [];
   for (const bytes of sizes) {
     const data = new Uint8Array(bytes);
-    for (let i = 0; i < bytes; i += 4096) data[i] = i & 255;
+    // Псевдослучайное заполнение (LCG) — данные плохо сжимаются на проводе
+    let seed = 12345 >>> 0;
+    for (let i = 0; i < bytes; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      data[i] = seed & 0xff;
+    }
     let worked = false;
     for (const url of endpoints) {
       try {
@@ -349,7 +372,7 @@ async function runTest() {
     const dl = await downloadTest((mbps) => {
       els.download.textContent = mbps.toFixed(2);
       els.chartCurrent.textContent = `${mbps.toFixed(2)} Мбит/с`;
-      pushChartPoint(mbps);
+      pushChartPointThrottled(mbps);
       updateIndicator(mbps);
     });
     state.results.download = dl;
@@ -366,7 +389,7 @@ async function runTest() {
     const ul = await uploadTest((mbps) => {
       els.upload.textContent = mbps.toFixed(2);
       els.chartCurrent.textContent = `${mbps.toFixed(2)} Мбит/с`;
-      pushChartPoint(mbps);
+      pushChartPointThrottled(mbps);
       updateIndicator(mbps);
     });
     state.results.upload = ul;

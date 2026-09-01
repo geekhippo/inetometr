@@ -22,6 +22,7 @@
 - 📈 **График скорости** — скользящее окно с Min / Avg / Max в реальном времени
 - 🪶 **Без зависимостей** — чистые HTML / CSS / JS, никаких фреймворков и сборщиков
 - 📱 **Адаптив** — корректно работает на мобильных, планшетах и десктопе
+- 🌙 **Тёмная тема** — автоматически следует системной теме (`prefers-color-scheme`)
 - 🌐 **Серверы Cloudflare** — замер через CDN ближайшего региона, по HTTPS
 
 ---
@@ -125,15 +126,13 @@ sudo certbot --nginx -d inetometr.ru -d www.inetometr.ru
 ## 🔄 Обновление
 
 ```bash
-cd /var/www/inetometr
 sudo systemctl stop nginx
-sudo curl -fsSL https://raw.githubusercontent.com/geekhippo/inetometr/main/install.sh -o /tmp/install.sh
-# либо просто скачайте файлы вручную:
-sudo curl -fsSL https://raw.githubusercontent.com/geekhippo/inetometr/main/index.html -o index.html
-sudo curl -fsSL https://raw.githubusercontent.com/geekhippo/inetometr/main/styles.css -o styles.css
-sudo curl -fsSL https://raw.githubusercontent.com/geekhippo/inetometr/main/app.js -o app.js
+bash <(curl -fsSL https://raw.githubusercontent.com/${REPO}/${BRANCH}/install.sh)
 sudo systemctl start nginx
 ```
+
+Скрипт `install.sh` идемпотентен: при повторном запуске он очищает старые файлы
+и ставит свежие из репозитория, пересоздаёт конфиг nginx и (если истёк) обновляет SSL.
 
 ---
 
@@ -234,6 +233,23 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+---
+
+## 📋 Changelog
+
+### v1.1 (текущая)
+- 🐛 **Fix:** корректный расчёт среднего значения на графике (устранена утечка `sum`/`count` в `pushChartPoint`)
+- 🐛 **Fix:** диалог «О сервисе» теперь использует единый класс `.dialog` в CSS и HTML
+- ⚡ **Perf:** троттлинг `pushChartPoint` до ~12 FPS (80 мс)
+- ⚡ **Perf:** сэмплирование `allSpeeds` раз в 200 мс (вместо каждого чанка)
+- 🌙 **UX:** автоматическая тёмная тема по `prefers-color-scheme`
+- 🔤 **UX:** добавлен `Inter` в стек шрифтов как надёжный fallback
+- 🛠 **DevOps:** `install.sh` теперь качает весь репозиторий tar-архивом (масштабируется на любые новые файлы), ставит владельца, чистит старые файлы перед копированием
+- 📦 **Real-data:** upload-тест использует псевдослучайные данные (LCG), не сжимаемые на проводе
+
+### v1.0
+- 🎉 Первый релиз: шкала в стиле Яндекс.Интернетометра, 3 метрики, интерактивный индикатор, график скорости
 
 ---
 
