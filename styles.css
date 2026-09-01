@@ -4,16 +4,18 @@
   --surface: #ffffff;
   --surface-2: #f6f6f6;
   --border: #e6e6e6;
-  --text: #1a1a1a;
-  --text-dim: #666666;
-  --text-mute: #999999;
-  --accent: #fc3f1d;
+  --text: #1a1a1a;          /* 17.4:1 на --bg (WCAG AAA) */
+  --text-dim: #666666;      /*  5.7:1 на --bg (WCAG AA) */
+  --text-mute: #767676;     /*  4.5:1 на --bg (WCAG AA) */
+  --accent: #fc3f1d;        /* бренд-цвет, 3.6:1 — допустим для крупного/жирного текста (≥18pt) и UI-элементов */
   --accent-2: #ff7a3d;
+  --accent-text: #c22600;   /*  5.9:1 — для текстовых ссылок */
   --accent-hover: #e63817;
   --radius: 16px;
   --radius-sm: 10px;
   --shadow: 0 2px 8px rgba(0,0,0,0.04);
   --shadow-btn: 0 4px 14px rgba(252, 63, 29, 0.3);
+  --focus-ring: 0 0 0 3px rgba(252, 63, 29, 0.45);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -279,6 +281,22 @@ body {
 .info-list li b { color: var(--text); }
 .dialog .hint { font-size: 13px; color: var(--text-mute); margin-top: 16px; }
 
+/* ===== Dialog (О сервисе) ===== */
+dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 460px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+dialog h2 { font-size: 20px; margin-bottom: 12px; }
+dialog p { margin-bottom: 8px; line-height: 1.5; }
+dialog a { color: var(--accent-text); text-decoration: underline; }
+dialog a:hover { color: var(--accent); }
+
 /* ===== Toast ===== */
 .toast {
   position: fixed;
@@ -316,7 +334,7 @@ body {
     --border: #2f2f2f;
     --text: #ececec;
     --text-dim: #9a9a9a;
-    --text-mute: #6e6e6e;
+    --text-mute: #888888;     /*  5.3:1 на --bg (WCAG AA) */
     --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
     --shadow-btn: 0 4px 14px rgba(252, 63, 29, 0.25);
   }
@@ -324,3 +342,44 @@ body {
   .icon-btn { color: var(--text-dim); }
   .g-metric-arrow { background: var(--text); color: var(--bg); }
 }
+
+/* ===== Skip link (доступность) ===== */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 12px;
+  padding: 8px 14px;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  z-index: 1001;
+  transition: top 0.15s;
+}
+.skip-link:focus-visible { top: 12px; }
+
+/* ===== Focus visible (клавиатура) ===== */
+:focus { outline: none; }
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 8px;
+}
+.primary-btn:focus-visible { box-shadow: var(--focus-ring); }
+.icon-btn:focus-visible    { box-shadow: var(--focus-ring); }
+
+/* ===== Уважение prefers-reduced-motion ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .primary-btn.running .btn-progress { animation: none !important; }
+}
+
+/* ===== Подсказка нативным контролам про тему (scrollbar, form) ===== */
+:root { color-scheme: light dark; }

@@ -30,7 +30,7 @@ const els = {
   ping: $('v-ping'),
   startBtn: $('start-btn'),
   btnLabel: document.querySelector('#start-btn .btn-label'),
-  chartCanvas: $('chart'),
+  chartCanvas: $('chart-canvas'),
   chartTitle: $('chart-title'),
   chartCurrent: $('chart-current'),
   chartMax: $('chart-max'),

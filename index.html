@@ -14,6 +14,7 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='none' stroke='%23fc3f1d' stroke-width='10'/></svg>">
 </head>
 <body>
+<a class="skip-link" href="#chart-card">Перейти к графику</a>
 <div class="app">
   <header class="topbar">
     <h1 class="logo">Инетометр</h1>
@@ -72,25 +73,25 @@
       </div>
 
       <!-- Состояние: текущая фаза -->
-      <div class="gauge-status" id="gauge-status">Готов к замеру</div>
+      <div class="gauge-status" id="gauge-status" role="status" aria-live="polite">Готов к замеру</div>
     </section>
 
     <!-- Кнопка замера -->
-    <button class="primary-btn" id="start-btn">
+    <button class="primary-btn" id="start-btn" aria-controls="gauge-section" aria-describedby="gauge-status">
       <span class="btn-label">Начать замер</span>
     </button>
 
     <!-- График скорости -->
-    <section class="chart-card">
+    <section class="chart-card" id="chart-card" aria-labelledby="chart-title">
       <div class="chart-head">
-        <div class="chart-title">Скорость входящая</div>
-        <div class="chart-current" id="chart-current">— Мбит/с</div>
+        <div class="chart-title" id="chart-title">Скорость входящая</div>
+        <div class="chart-current" id="chart-current" aria-live="polite" aria-atomic="true">— Мбит/с</div>
       </div>
-      <canvas id="chart" class="chart-canvas" width="900" height="240"></canvas>
-      <div class="chart-stats">
-        <div class="chart-stat"><span>Макс.</span><b id="chart-max">—</b></div>
-        <div class="chart-stat"><span>Средн.</span><b id="chart-avg">—</b></div>
-        <div class="chart-stat"><span>Мин.</span><b id="chart-min">—</b></div>
+      <canvas id="chart-canvas" class="chart-canvas" width="900" height="240" role="img" aria-label="График скорости загрузки по времени"></canvas>
+      <div class="chart-stats" aria-label="Статистика замера">
+        <div class="chart-stat"><span>Макс.</span><b id="chart-max" aria-live="polite">—</b></div>
+        <div class="chart-stat"><span>Средн.</span><b id="chart-avg" aria-live="polite">—</b></div>
+        <div class="chart-stat"><span>Мин.</span><b id="chart-min" aria-live="polite">—</b></div>
       </div>
     </section>
   </main>
