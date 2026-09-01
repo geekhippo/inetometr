@@ -37,9 +37,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0;
-  transform: scale(0.9);
+  transform: scale(0.82);
   transform-origin: top center;
-  width: 111.111%; /* компенсация: при scale(0.9) элемент занимает 90% — расширяем до 100% по ширине */
+  width: 122%; /* компенсация: при scale(0.82) элемент занимает 82% — расширяем до 100% по ширине */
 }
 
 /* ===== Topbar ===== */
