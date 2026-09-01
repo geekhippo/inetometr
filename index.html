@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#ffffff">
+<meta name="description" content="Инетометр — измерение скорости интернет-соединения в стиле Яндекс.Интернетометра: входящая, исходящая скорость, задержка и график.">
+<meta name="keywords" content="speedtest, интернет, скорость, задержка, ping, inetometr">
+<title>Инетометр — измерить скорость интернета</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=YS+Display:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='none' stroke='%23fc3f1d' stroke-width='10'/></svg>">
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1 class="logo">Инетометр</h1>
+    <button class="icon-btn" id="info-btn" aria-label="Информация">
+      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="16" x2="12" y2="12"/>
+        <line x1="12" y1="8" x2="12.01" y2="8"/>
+      </svg>
+    </button>
+  </header>
+
+  <main class="content">
+    <!-- Шкала с метриками внутри -->
+    <section class="gauge-section" id="gauge-section">
+      <svg viewBox="0 0 800 460" preserveAspectRatio="xMidYMid meet" class="gauge-svg" id="gauge-svg">
+        <defs>
+          <linearGradient id="tickGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#fc3f1d"/>
+            <stop offset="100%" stop-color="#ff7a3d"/>
+          </linearGradient>
+        </defs>
+        <!-- Тики генерируются JS -->
+        <g id="ticks-group"></g>
+        <!-- Числа 0/100/1000 убраны со шкалы (по запросу) -->
+        <!-- Дуга прогресса (0..1) -->
+        <path id="progress-arc" class="progress-arc" d=""></path>
+        <!-- Указатель на шкале -->
+        <circle id="indicator" class="indicator" cx="0" cy="0" r="0" visibility="hidden"></circle>
+      </svg>
+
+      <div class="gauge-metrics">
+        <div class="g-metric">
+          <div class="g-metric-head">
+            <span class="g-metric-label">Входящая</span>
+            <span class="g-metric-arrow">↓</span>
+          </div>
+          <div class="g-metric-value" id="v-download">—</div>
+          <div class="g-metric-unit">Мбит/с</div>
+        </div>
+        <div class="g-metric">
+          <div class="g-metric-head">
+            <span class="g-metric-label">Исходящая</span>
+            <span class="g-metric-arrow">↑</span>
+          </div>
+          <div class="g-metric-value" id="v-upload">—</div>
+          <div class="g-metric-unit">Мбит/с</div>
+        </div>
+        <div class="g-metric">
+          <div class="g-metric-head">
+            <span class="g-metric-label">Задержка</span>
+          </div>
+          <div class="g-metric-value" id="v-ping">—</div>
+          <div class="g-metric-unit">мс</div>
+        </div>
+      </div>
+
+      <!-- Состояние: текущая фаза -->
+      <div class="gauge-status" id="gauge-status">Готов к замеру</div>
+    </section>
+
+    <!-- Кнопка замера -->
+    <button class="primary-btn" id="start-btn">
+      <span class="btn-label">Начать замер</span>
+    </button>
+
+    <!-- График скорости -->
+    <section class="chart-card">
+      <div class="chart-head">
+        <div class="chart-title">Скорость входящая</div>
+        <div class="chart-current" id="chart-current">— Мбит/с</div>
+      </div>
+      <canvas id="chart" class="chart-canvas" width="900" height="240"></canvas>
+      <div class="chart-stats">
+        <div class="chart-stat"><span>Макс.</span><b id="chart-max">—</b></div>
+        <div class="chart-stat"><span>Средн.</span><b id="chart-avg">—</b></div>
+        <div class="chart-stat"><span>Мин.</span><b id="chart-min">—</b></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Информационный диалог -->
+  <dialog id="info-dialog" class="info-dialog">
+    <h2>О сервисе</h2>
+    <p><b>Инетометр</b> — открытый сервис для измерения скорости интернет-соединения.</p>
+    <p>Замеряет три параметра: <b>входящую</b> и <b>исходящую</b> скорость (Мбит/с) и <b>задержку</b> (мс, ping).</p>
+    <p>Серверы: Cloudflare (speed.cloudflare.com), ближайший к вам. Замер идёт по HTTPS.</p>
+    <p>Код открыт: <a href="https://github.com/geekhippo/inetometr" target="_blank" rel="noopener">github.com/geekhippo/inetometr</a></p>
+    <form method="dialog"><button class="primary-btn small">Понятно</button></form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

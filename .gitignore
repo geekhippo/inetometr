@@ -1,0 +1,32 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / secrets (если будете добавлять .env)
+.env
+.env.local
+.env.*.local
+
+# Temporary
+/tmp/
+*.tmp
+*.bak
+
+# Node (если кто-то решит обернуть в Node.js)
+node_modules/
+package-lock.json
+yarn.lock
