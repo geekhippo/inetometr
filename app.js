@@ -15,6 +15,13 @@ import { fetchServerMeta, describeServer } from './lib/server-meta.js';
 import { createRollingMedian } from './lib/stats.js';
 import { createCounterAnimator } from './lib/animator.js';
 import { renderResultImage, downloadResultImage } from './lib/image-card.js';
+import {
+  downloadServers,
+  uploadServers,
+  pingServers,
+  buildUrl,
+  bytesToHetznerSize,
+} from './lib/speedtest-servers.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -58,6 +65,7 @@ const state = {
   results: { download: 0, upload: 0, ping: 0, jitter: 0 },
   chart: { data: [], max: 0, sum: 0, count: 0, min: Infinity },
   downloadSamples: [],
+  usedServers: { ping: null, download: null, upload: null },
   serverMeta: {},
 };
 
@@ -214,35 +222,49 @@ function pushChartPointThrottled(v) {
 }
 
 // ---------- Tests ----------
+// Ping: пробуем все серверы по очереди, берём первый ответивший.
 async function pingTest() {
   const samples = 10;
   const times = [];
   for (let i = 0; i < samples; i++) {
-    const t0 = performance.now();
-    await fetch(`${PING_URL}&_=${Date.now()}_${i}`, { cache: 'no-store', mode: 'cors' });
-    times.push(performance.now() - t0);
+    let sample = null;
+    for (const server of pingServers()) {
+      try {
+        const t0 = performance.now();
+        await fetch(buildUrl(server.pingUrl, { n: `${Date.now()}_${i}` }), {
+          cache: 'no-store',
+          mode: 'cors',
+        });
+        sample = performance.now() - t0;
+        state.usedServers.ping = server.id;
+        break;
+      } catch {
+        continue;
+      }
+    }
+    if (sample != null) times.push(sample);
     await sleep(80);
   }
   times.sort((a, b) => a - b);
-  return times[Math.floor(times.length / 2)];
+  return times[Math.floor(times.length / 2)] ?? 0;
 }
 
+// Download: пробуем каждый сервер для каждого размера.
+// Если сервер ответил — замеряем с него и берём сэмплы.
 async function downloadTest(onProgress) {
-  const urlBuilders = [
-    (bytes) => `https://speed.cloudflare.com/__down?bytes=${bytes}&_=${Date.now()}_${bytes}`,
-    (bytes) => {
-      const label = bytes >= 100_000_000 ? '100MB' : bytes >= 10_000_000 ? '10MB' : '1MB';
-      return `https://speed.hetzner.de/${label}.bin?_=${Date.now()}`;
-    },
-  ];
   const sizes = [1_000_000, 5_000_000, 10_000_000, 25_000_000];
   const allSpeeds = [];
   for (const bytes of sizes) {
     let worked = false;
-    for (const build of urlBuilders) {
+    for (const server of downloadServers()) {
       try {
         const t0 = performance.now();
-        const resp = await fetch(build(bytes), { cache: 'no-store', mode: 'cors' });
+        const url = buildUrl(server.downloadUrl, {
+          bytes,
+          size: bytesToHetznerSize(bytes),
+          n: `${Date.now()}_${bytes}`,
+        });
+        const resp = await fetch(url, { cache: 'no-store', mode: 'cors' });
         if (!resp.ok) continue;
         const reader = resp.body.getReader();
         let received = 0;
@@ -255,7 +277,6 @@ async function downloadTest(onProgress) {
           if (elapsed > 0) {
             const mbps = (received * 8) / 1e6 / elapsed;
             onProgress(mbps);
-            // Сэмплируем не чаще раза в 200 мс — иначе массив раздувается
             if (performance.now() - lastSample > 200) {
               allSpeeds.push(mbps);
               lastSample = performance.now();
@@ -266,11 +287,12 @@ async function downloadTest(onProgress) {
         if (totalElapsed > 0) {
           allSpeeds.push((received * 8) / 1e6 / totalElapsed);
         }
+        state.usedServers.download = server.id;
         worked = true;
         break;
-      } catch (e) { console.warn('dl:', e.message); }
+      } catch (e) { console.warn(`dl ${server.id}:`, e.message); }
     }
-    if (!worked) throw new Error(`Не удалось скачать ${bytes} байт`);
+    if (!worked) throw new Error(`Не удалось скачать ${bytes} байт ни с одного сервера`);
   }
   allSpeeds.sort((a, b) => a - b);
   return allSpeeds[Math.floor(allSpeeds.length / 2)] || 0;
@@ -308,7 +330,6 @@ function uploadViaXHR(url, data, onProgress) {
 }
 
 async function uploadTest(onProgress) {
-  const endpoints = ['https://speed.cloudflare.com/__up', 'https://nghttp2.org/httpbin/post'];
   const sizes = [500_000, 2_000_000, 5_000_000];
   const allSpeeds = [];
   for (const bytes of sizes) {
@@ -320,15 +341,17 @@ async function uploadTest(onProgress) {
       data[i] = seed & 0xff;
     }
     let worked = false;
-    for (const url of endpoints) {
+    for (const server of uploadServers()) {
       try {
+        const url = buildUrl(server.uploadUrl, { n: Date.now() });
         const mbps = await uploadViaXHR(url, data, onProgress);
         if (mbps > 0) {
           allSpeeds.push(mbps);
+          state.usedServers.upload = server.id;
           worked = true;
           break;
         }
-      } catch (e) { console.warn('up:', e.message); }
+      } catch (e) { console.warn(`up ${server.id}:`, e.message); }
     }
     if (!worked) throw new Error('Все upload-серверы недоступны');
   }
@@ -407,6 +430,7 @@ async function runTest() {
   if (state.running) return;
   state.running = true;
   state.results = { download: 0, upload: 0, ping: 0, jitter: 0 };
+  state.usedServers = { ping: null, download: null, upload: null };
   // Сбросить медианы и аниматоры — иначе первый сэмпл сглаживается с предыдущим.
   downloadMedian.reset();
   uploadMedian.reset();
