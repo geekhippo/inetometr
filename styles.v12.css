@@ -349,6 +349,13 @@ body {
 }
 .result-actions[hidden] { display: none; }
 
+/* Группа кнопок внутри result-actions (копировать + скачать картинку) */
+.result-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .secondary-btn {
   display: inline-flex;
   align-items: center;

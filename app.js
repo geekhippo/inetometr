@@ -14,6 +14,7 @@ import { formatResults, copyToClipboard } from './lib/share.js';
 import { fetchServerMeta, describeServer } from './lib/server-meta.js';
 import { createRollingMedian } from './lib/stats.js';
 import { createCounterAnimator } from './lib/animator.js';
+import { renderResultImage, downloadResultImage } from './lib/image-card.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -56,6 +57,7 @@ const state = {
   running: false,
   results: { download: 0, upload: 0, ping: 0, jitter: 0 },
   chart: { data: [], max: 0, sum: 0, count: 0, min: Infinity },
+  downloadSamples: [],
   serverMeta: {},
 };
 
@@ -81,6 +83,8 @@ const els = {
   resultActions: document.querySelector('.result-actions'),
   copyBtn: $('copy-btn'),
   copyBtnLabel: document.querySelector('#copy-btn span'),
+  imageBtn: $('image-btn'),
+  imageBtnLabel: document.querySelector('#image-btn span'),
   serverBadge: $('server-badge'),
   serverBadgeText: $('server-badge-text'),
 };
@@ -373,6 +377,31 @@ async function copyResult() {
   }
 }
 
+// ---------- Download image ----------
+async function downloadImage() {
+  if (!els.imageBtn) return;
+  const originalLabel = els.imageBtnLabel ? els.imageBtnLabel.textContent : 'Скачать картинку';
+  if (els.imageBtnLabel) els.imageBtnLabel.textContent = 'Готовлю…';
+  els.imageBtn.disabled = true;
+  try {
+    // Берём последние ~80 сэмплов графика для изображения
+    const samples = (state.downloadSamples || []).slice(-80);
+    const { blob } = await renderResultImage(state.results, state.serverMeta, samples);
+    downloadResultImage(blob);
+    if (els.imageBtnLabel) els.imageBtnLabel.textContent = 'Скачано!';
+    showToast('Картинка сохранена');
+  } catch (e) {
+    console.error('image:', e);
+    showToast('Не удалось создать картинку', 3000);
+    if (els.imageBtnLabel) els.imageBtnLabel.textContent = originalLabel;
+  } finally {
+    setTimeout(() => {
+      els.imageBtn.disabled = false;
+      if (els.imageBtnLabel) els.imageBtnLabel.textContent = originalLabel;
+    }, 1500);
+  }
+}
+
 // ---------- Run ----------
 async function runTest() {
   if (state.running) return;
@@ -418,6 +447,8 @@ async function runTest() {
       updateIndicator(smoothed);
     });
     state.results.download = dl;
+    // Сохраняем сэмплы download для image
+    state.downloadSamples = [...state.chart.data];
     downloadAnim.update(dl);
     els.chartCurrent.textContent = `${dl.toFixed(2)} Мбит/с`;
     updateIndicator(dl);
@@ -476,6 +507,7 @@ function showToast(msg, ms = 2500) {
 els.startBtn.addEventListener('click', runTest);
 $('info-btn').addEventListener('click', () => $('info-dialog').showModal());
 if (els.copyBtn) els.copyBtn.addEventListener('click', copyResult);
+if (els.imageBtn) els.imageBtn.addEventListener('click', downloadImage);
 
 setStatus(0);
 els.chartCurrent.textContent = '— Мбит/с';
