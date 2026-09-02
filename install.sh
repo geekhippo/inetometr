@@ -128,6 +128,7 @@ PROD_FILES=(
   index.html
   styles.v12.css
   app.js
+  og-image.svg
 )
 for f in "${PROD_FILES[@]}"; do
   if [ ! -f "$SRC_DIR/$f" ]; then

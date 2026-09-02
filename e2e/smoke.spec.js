@@ -82,6 +82,34 @@ test('бейдж CDN-сервера появляется после probe-зап
   await expect(page.locator('#server-badge-text')).toContainText('RU');
 });
 
+test('Open Graph meta-теги присутствуют для превью при шаринге', async ({ page }) => {
+  await page.goto('/index.html');
+  // og:title
+  const ogTitle = await page.locator('meta[property="og:title"]').getAttribute('content');
+  expect(ogTitle).toContain('Инетометр');
+  // og:image
+  const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content');
+  expect(ogImage).toMatch(/og-image\.(svg|png)$/);
+  // twitter:card
+  const twCard = await page.locator('meta[name="twitter:card"]').getAttribute('content');
+  expect(twCard).toBe('summary_large_image');
+  // og:image:width / height
+  const ogW = await page.locator('meta[property="og:image:width"]').getAttribute('content');
+  const ogH = await page.locator('meta[property="og:image:height"]').getAttribute('content');
+  expect(ogW).toBe('1200');
+  expect(ogH).toBe('630');
+});
+
+test('og-image.svg доступен и валидный SVG', async ({ page }) => {
+  const resp = await page.request.get('/og-image.svg');
+  expect(resp.status()).toBe(200);
+  expect(resp.headers()['content-type']).toMatch(/image\/svg|image/);
+  const body = await resp.text();
+  expect(body).toMatch(/<svg[^>]*viewBox="0 0 1200 630"/);
+  // Должен содержать "Инетометр"
+  expect(body).toContain('Инетометр');
+});
+
 test('кнопка "Скопировать" скрыта до замера и появляется после', async ({ page }) => {
   await page.goto('/index.html');
   // Изначально скрыта
