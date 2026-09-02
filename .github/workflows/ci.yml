@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [test, main]
+  pull_request:
+    branches: [test, main]
+
+jobs:
+  test:
+    name: Lint + Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: ESLint
+        run: npx eslint lib/ tests/
+      - name: Vitest
+        run: npx vitest run --reporter=verbose
+      - name: Coverage
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov
+
+  validate-html:
+    name: HTML structure (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверить наличие обязательных элементов
+        run: |
+          test -f index.html
+          test -f app.js
+          test -f styles.v12.css
+          test -f lib/gauge.js
+          grep -q 'id="start-btn"' index.html
+          grep -q 'id="gauge-status"' index.html
+          grep -q 'id="chart-canvas"' index.html
+          grep -q 'id="ticks-group"' index.html
+          grep -q 'type="module"' index.html
+          echo "✅ index.html structure looks sane"

@@ -158,21 +158,79 @@ sudo certbot renew
 
 ---
 
+## 🧪 Разработка (dev workflow)
+
+```bash
+# Установить dev-зависимости
+npm install
+
+# Запустить unit-тесты (25 кейсов для геометрии шкалы)
+npm test
+
+# Линтер (ESLint flat config)
+npm run lint
+
+# Форматирование (Prettier)
+npm run format
+
+# End-to-end тесты (Playwright + chromium)
+npx playwright install chromium   # один раз
+npm run e2e
+
+# Pre-commit gate (линт + тесты)
+npm run precommit
+```
+
+Все dev-зависимости (vitest, eslint, prettier, playwright) — только для разработки.
+**Прод-сборка не требует ни npm, ни сборщика** — `index.html` подключает `app.js` напрямую.
+
+### Pre-commit hook (опционально)
+
+```bash
+cp scripts/precommit.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+# теперь каждый commit будет проходить через ESLint + vitest
+```
+
+### CI/CD
+
+Каждый push в `test` или `main` запускает `.github/workflows/ci.yml`:
+- ESLint (0 ошибок — иначе блок)
+- Vitest (25 тестов — все должны проходить)
+- HTML smoke (наличие обязательных id и ES-module script)
+- Покрытие кода (v8)
+
+---
+
 ## 🏗 Структура проекта
 
 ```
 inetometr/
 ├── index.html        # Структура страницы (одна большая SVG-шкала, метрики, кнопка, график)
-├── styles.css        # Все стили (светлая тема, оранжевый акцент, шрифт YS Display)
-├── app.js            # Логика: генерация тиков, замер скорости, дуга прогресса, график
+├── styles.v12.css    # Все стили (светлая тема, оранжевый акцент, шрифт YS Display)
+├── app.js            # Логика: импорт gauge.js, замер скорости, дуга прогресса, график
+├── lib/
+│   └── gauge.js      # Чистая геометрия (no DOM) — тестируемая, переиспользуемая
+├── tests/
+│   └── gauge.test.js # Unit-тесты: 25 кейсов (vitest)
+├── e2e/
+│   └── smoke.spec.js # Playwright e2e: страница → тики → кнопка → замер
+├── scripts/
+│   ├── precommit.js  # Pre-commit gate: ESLint + vitest
+│   └── precommit.sh  # Git hook wrapper
+├── .github/
+│   └── workflows/
+│       └── ci.yml    # GitHub Actions: lint + test + html validate
 ├── install.sh        # Скрипт установки на сервер (nginx + certbot)
-├── install.sh.example# Пример готового конфига nginx
 ├── LICENSE           # MIT
-├── .gitignore        # Игнорируемые файлы
+├── package.json      # dev-deps: vitest, eslint, prettier, playwright
+├── vitest.config.js
+├── eslint.config.js
+├── .prettierrc.json
 └── README.md         # Этот файл
 ```
 
-Полный размер проекта: **~30 КБ**. Никаких зависимостей, никакой сборки.
+Полный размер прод-кода (без `node_modules`): **~45 КБ**. Никаких рантайм-зависимостей.
 
 ---
 
