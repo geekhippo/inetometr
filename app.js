@@ -23,6 +23,14 @@ import {
   bytesToHetznerSize,
 } from './lib/speedtest-servers.js';
 import { shareSupport, shareImage } from './lib/share-api.js';
+import {
+  loadHistory,
+  addToHistory,
+  groupByDay,
+  delta,
+  clearHistory,
+  recentHistory,
+} from './lib/history.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -98,6 +106,11 @@ const els = {
   shareBtnLabel: document.querySelector('#share-btn span'),
   serverBadge: $('server-badge'),
   serverBadgeText: $('server-badge-text'),
+  historyCard: $('history-card'),
+  historyCanvas: $('history-canvas'),
+  historyDeltaDl: $('history-delta-dl'),
+  historyDeltaUl: $('history-delta-ul'),
+  historyClear: $('history-clear'),
 };
 
 // Геометрия и лог-шкала импортируются из ./lib/gauge.js (testable, no DOM).
@@ -464,6 +477,114 @@ async function shareResult() {
   }
 }
 
+// ---------- History (localStorage) ----------
+function drawHistoryChart() {
+  if (!els.historyCanvas) return;
+  const history = loadHistory();
+  if (history.length < 1) {
+    els.historyCard.hidden = true;
+    return;
+  }
+  // Показать блок даже для 1 замера (есть 1 точка и дельта=null)
+  els.historyCard.hidden = false;
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = els.historyCanvas.clientWidth || 800;
+  const cssH = els.historyCanvas.clientHeight || 120;
+  if (els.historyCanvas.width !== cssW * dpr || els.historyCanvas.height !== cssH * dpr) {
+    els.historyCanvas.width = cssW * dpr;
+    els.historyCanvas.height = cssH * dpr;
+  }
+  const ctx = els.historyCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const days = 7;
+  const dayMs = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const todayMs = now.getTime();
+  const startMs = todayMs - (days - 1) * dayMs;
+
+  const grouped = groupByDay(history, days);
+  const buckets = [...grouped.values()];
+
+  // Считаем max по avg для масштаба
+  let max = 1;
+  for (const b of buckets) {
+    if (b.download.length) max = Math.max(max, avg(b.download));
+    if (b.upload.length) max = Math.max(max, avg(b.upload));
+  }
+  max = Math.max(max, 10); // минимум шкалы
+
+  const padX = 16, padY = 12;
+  const w = cssW - padX * 2;
+  const h = cssH - padY * 2;
+
+  // Сетка
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 3; i++) {
+    const y = padY + (i / 4) * h;
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(padX + w, y);
+    ctx.stroke();
+  }
+
+  // Рисуем download (нижняя линия — красный)
+  drawLine(ctx, buckets, 'download', padX, padY, w, h, max, days, '#fc3f1d');
+  // Рисуем upload (верхняя линия — оранжевый)
+  drawLine(ctx, buckets, 'upload', padX, padY, w, h, max, days, '#ff7a3d');
+
+  // Обновляем дельты
+  updateDelta(els.historyDeltaDl, delta(history, 'download'), '↓');
+  updateDelta(els.historyDeltaUl, delta(history, 'upload'), '↑');
+}
+
+function avg(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function drawLine(ctx, buckets, metric, padX, padY, w, h, max, days, color) {
+  const stepX = w / (days - 1);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  let started = false;
+  buckets.forEach((b, i) => {
+    if (b[metric].length === 0) return;
+    const x = padX + i * stepX;
+    const y = padY + h - (avg(b[metric]) / max) * h;
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else ctx.lineTo(x, y);
+    // Точка
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  });
+  ctx.stroke();
+}
+
+function updateDelta(el, value, arrow) {
+  if (!el) return;
+  el.classList.remove('history-delta--up', 'history-delta--down', 'history-delta--neutral');
+  if (value == null) {
+    el.textContent = `${arrow} —`;
+    el.classList.add('history-delta--neutral');
+    return;
+  }
+  const sign = value > 0 ? '+' : '';
+  const icon = value > 0.5 ? '↑' : value < -0.5 ? '↓' : '→';
+  el.textContent = `${arrow} ${sign}${value.toFixed(1)}% ${icon}`;
+  el.classList.add(value > 0.5 ? 'history-delta--up' : value < -0.5 ? 'history-delta--down' : 'history-delta--neutral');
+}
+
 // ---------- Run ----------
 async function runTest() {
   if (state.running) return;
@@ -538,6 +659,9 @@ async function runTest() {
 
     setStatus(5);
     showToast(`Готово: ↓${dl.toFixed(1)} / ↑${ul.toFixed(1)} Мбит/с`);
+    // Сохраняем в историю
+    addToHistory(state.results, state.usedServers.download);
+    drawHistoryChart();
     // Показать блок "Скопировать + бейдж сервера"
     if (els.resultActions) els.resultActions.hidden = false;
     // Показать "Поделиться" только если устройство поддерживает Web Share API
@@ -576,10 +700,22 @@ $('info-btn').addEventListener('click', () => $('info-dialog').showModal());
 if (els.copyBtn) els.copyBtn.addEventListener('click', copyResult);
 if (els.imageBtn) els.imageBtn.addEventListener('click', downloadImage);
 if (els.shareBtn) els.shareBtn.addEventListener('click', shareResult);
+if (els.historyClear) {
+  els.historyClear.addEventListener('click', () => {
+    if (confirm('Очистить всю историю замеров?')) {
+      clearHistory();
+      drawHistoryChart();
+      showToast('История очищена');
+    }
+  });
+}
 
 setStatus(0);
 els.chartCurrent.textContent = '— Мбит/с';
 window.addEventListener('resize', drawChart);
+window.addEventListener('resize', drawHistoryChart);
+// Если есть история — показать блок сразу
+drawHistoryChart();
 
 // Запустить определение CDN-сервера сразу при загрузке страницы
 // (не блокирует UI; результат появится в бейдже)

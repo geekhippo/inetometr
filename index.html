@@ -150,6 +150,23 @@
         </div>
       </div>
     </section>
+
+    <!-- История замеров (появляется после 2+ замеров) -->
+    <section class="history-card" id="history-card" hidden aria-labelledby="history-title">
+      <div class="history-head">
+        <h2 id="history-title" class="history-title">История за 7 дней</h2>
+        <div class="history-deltas" aria-live="polite">
+          <span class="history-delta" id="history-delta-dl" data-metric="download"></span>
+          <span class="history-delta" id="history-delta-ul" data-metric="upload"></span>
+        </div>
+      </div>
+      <canvas id="history-canvas" class="history-canvas" width="900" height="140" role="img" aria-label="График средней скорости за 7 дней"></canvas>
+      <div class="history-legend" aria-hidden="true">
+        <span class="legend-item"><span class="legend-dot legend-dot--dl"></span>Входящая</span>
+        <span class="legend-item"><span class="legend-dot legend-dot--ul"></span>Исходящая</span>
+        <button class="history-clear" id="history-clear" type="button" aria-label="Очистить историю">Очистить</button>
+      </div>
+    </section>
   </main>
 
   <!-- Информационный диалог -->
