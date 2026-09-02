@@ -5,7 +5,9 @@
 #
 # Поведение:
 #   1. Проверяет наличие nginx и certbot (при необходимости устанавливает).
-#   2. Скачивает исходники (index.html, styles.css, app.js) из GitHub в /var/www/inetometr.
+# 2. Скачивает production-файлы (index.html, styles.v12.css, app.js, lib/*.js) из GitHub
+#    в /var/www/inetometr. Dev-артефакты (tests/, .github/, package.json и т.п.)
+#    в архиве есть, но НЕ копируются — только то, что нужно браузеру.
 #   3. Создаёт конфиг nginx для домена $DOMAIN (по умолчанию inetometr.ru).
 #   4. Получает SSL-сертификат Let's Encrypt (опционально).
 #   5. Запускает и добавляет nginx в автозагрузку.
@@ -54,24 +56,108 @@ if ! command -v certbot >/dev/null 2>&1; then
   fi
 fi
 
-# ── 3. Скачивание исходников (через tar-архив, чтобы выдержать любую структуру) ─
+# ── 3. Скачивание исходников ──────────────────────────────────────────────────
+# Пробуем несколько зеркал. Если GitHub raw заблокирован (404/403/000) —
+# fallback на jsDelivr CDN.
 echo "📥 Скачиваю файлы из GitHub…"
 TMP_DIR=$(mktemp -d)
-# GitHub отдаёт архив репозитория целиком — внутри inetometr-<sha>/ со всеми файлами
-curl -fsSL "https://codeload.github.com/${REPO}/tarball/refs/heads/${BRANCH}" -o "${TMP_DIR}/src.tar.gz"
+
+download_archive() {
+  local url="$1"
+  echo "  → пробую: $url"
+  local out="${TMP_DIR}/src.tar.gz"
+  # -f: fail на HTTP>=400, -s: silent, -L: follow redirects
+  # БЕЗ -S и stderr=/dev/null — чтобы юзер видел ошибку curl
+  if curl -fsL --max-time 30 -A "inetometr-installer" "$url" -o "$out"; then
+    # Проверим размер (>1KB — иначе это HTML 404)
+    local size=$(wc -c < "$out" 2>/dev/null | tr -d ' ')
+    if [ "${size:-0}" -gt 1000 ]; then
+      # Проверим что это gzip/tar, а не HTML страница с 404
+      if file "$out" 2>/dev/null | grep -qi 'gzip\|tar'; then
+        return 0
+      else
+        echo "  ⚠ Скачано, но не похоже на архив (size=$size)"
+      fi
+    else
+      echo "  ⚠ Скачано, но файл слишком мал ($size байт) — возможно 404"
+    fi
+  fi
+  return 1
+}
+
+# Пробуем в порядке приоритета: GitHub codeload → jsDelivr CDN (полный tarball)
+ARCHIVE_OK=0
+for url in \
+  "https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}" \
+  "https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}/?format=targz" \
+  "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"; do
+  if download_archive "$url"; then
+    ARCHIVE_OK=1
+    echo "  ✓ Скачано с: $url"
+    break
+  fi
+done
+
+if [ "$ARCHIVE_OK" -ne 1 ]; then
+  echo "❌ Не удалось скачать архив ни с одного из зеркал:"
+  echo "   - https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}"
+  echo "   - https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}"
+  echo "   - https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
+  echo "   Возможные причины: файрвол блокирует GitHub, нет интернета, или DNS не резолвит."
+  echo "   Попробуйте вручную:"
+  echo "     curl -v https://github.com  # проверить доступ"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
+
 tar -xzf "${TMP_DIR}/src.tar.gz" -C "${TMP_DIR}"
 SRC_DIR=$(find "${TMP_DIR}" -maxdepth 1 -type d -name 'inetometr-*' | head -1)
 if [ -z "$SRC_DIR" ]; then
   echo "❌ Не удалось распаковать архив репозитория"
+  rm -rf "$TMP_DIR"
   exit 1
 fi
 
-# Очищаем старую установку и копируем свежие файлы
+# Очищаем старую установку и копируем ТОЛЬКО production-файлы
+# (в архиве репо есть dev-артефакты: .github/, tests/, e2e/, package.json и т.п. —
+#  на проде они не нужны и могут запутать)
 mkdir -p "$INSTALL_DIR"
 rm -rf "${INSTALL_DIR:?}/"*
-cp -r "$SRC_DIR"/. "$INSTALL_DIR"/
+# Список прод-файлов. Если структура изменится — скрипт явно упадёт с понятной ошибкой.
+PROD_FILES=(
+  index.html
+  styles.v12.css
+  app.js
+)
+for f in "${PROD_FILES[@]}"; do
+  if [ ! -f "$SRC_DIR/$f" ]; then
+    echo "❌ В архиве нет обязательного файла: $f"
+    echo "   Возможно, репозиторий повреждён. Проверьте:"
+    echo "   https://github.com/${REPO}/tree/${BRANCH}"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+  cp "$SRC_DIR/$f" "$INSTALL_DIR/"
+done
+# lib/ — подключаемые модули (gauge.js, share.js, server-meta.js)
+if [ -d "$SRC_DIR/lib" ]; then
+  mkdir -p "$INSTALL_DIR/lib"
+  cp -r "$SRC_DIR/lib/." "$INSTALL_DIR/lib/"
+  # Проверим что там есть хоть какие-то .js
+  if ! ls "$INSTALL_DIR/lib"/*.js >/dev/null 2>&1; then
+    echo "❌ В lib/ нет .js файлов — приложение не будет работать"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+else
+  echo "❌ В архиве нет директории lib/ — приложение не будет работать"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
 rm -rf "$TMP_DIR"
-echo "  ✓ $(ls "$INSTALL_DIR" | wc -l) файлов скопировано"
+TOTAL=$(find "$INSTALL_DIR" -type f | wc -l)
+echo "  ✓ ${TOTAL} production-файлов скопировано в ${INSTALL_DIR}"
+echo "    $(ls "$INSTALL_DIR")"
 
 # Устанавливаем владельца
 if id "www-data" >/dev/null 2>&1; then
