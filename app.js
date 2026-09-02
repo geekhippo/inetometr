@@ -12,6 +12,7 @@ import {
 } from './lib/gauge.js';
 import { formatResults, copyToClipboard } from './lib/share.js';
 import { fetchServerMeta, describeServer } from './lib/server-meta.js';
+import { createRollingMedian } from './lib/stats.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -25,6 +26,12 @@ const PHASE_LABELS = [
   'Отправляю данные…',
   'Замер завершён',
 ];
+
+// ---------- State ----------
+// Streaming rolling median для UI-цифр (окно 7 сэмплов ≈ 1.4с при 200мс интервале).
+// Убирает одиночные выбросы (TCP bursts, GC паузы), но не задерживает реакцию.
+const downloadMedian = createRollingMedian(7);
+const uploadMedian = createRollingMedian(7);
 
 const state = {
   running: false,
@@ -352,6 +359,9 @@ async function runTest() {
   if (state.running) return;
   state.running = true;
   state.results = { download: 0, upload: 0, ping: 0, jitter: 0 };
+  // Сбросить медианы — иначе первый сэмпл нового замера будет сглажен с предыдущим.
+  downloadMedian.reset();
+  uploadMedian.reset();
   els.download.textContent = '—';
   els.upload.textContent = '—';
   els.ping.textContent = '—';
@@ -379,10 +389,12 @@ async function runTest() {
     els.chartTitle.textContent = 'Скорость входящая';
     els.download.textContent = '…';
     const dl = await downloadTest((mbps) => {
-      els.download.textContent = mbps.toFixed(2);
-      els.chartCurrent.textContent = `${mbps.toFixed(2)} Мбит/с`;
-      pushChartPointThrottled(mbps);
-      updateIndicator(mbps);
+      // Показываем сглаженное значение, чтобы цифра не прыгала.
+      const smoothed = downloadMedian.push(mbps);
+      els.download.textContent = smoothed.toFixed(2);
+      els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
+      pushChartPointThrottled(smoothed);
+      updateIndicator(smoothed);
     });
     state.results.download = dl;
     els.download.textContent = dl.toFixed(2);
@@ -396,10 +408,11 @@ async function runTest() {
     els.chartTitle.textContent = 'Скорость исходящая';
     els.upload.textContent = '…';
     const ul = await uploadTest((mbps) => {
-      els.upload.textContent = mbps.toFixed(2);
-      els.chartCurrent.textContent = `${mbps.toFixed(2)} Мбит/с`;
-      pushChartPointThrottled(mbps);
-      updateIndicator(mbps);
+      const smoothed = uploadMedian.push(mbps);
+      els.upload.textContent = smoothed.toFixed(2);
+      els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
+      pushChartPointThrottled(smoothed);
+      updateIndicator(smoothed);
     });
     state.results.upload = ul;
     els.upload.textContent = ul.toFixed(2);
