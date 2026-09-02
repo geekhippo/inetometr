@@ -22,7 +22,7 @@ jobs:
       - name: Vitest
         run: npx vitest run --reporter=verbose
       - name: Coverage
-        run: npx vitest run --coverage --reporter=text-summary
+        run: npx vitest run --coverage --coverage.reporter=text-summary --coverage.reporter=lcov
 
   validate-html:
     name: HTML structure (smoke)
