@@ -1,6 +1,15 @@
 // ============================================================
 // Интернометр — в стиле Яндекс.Интернетометра
 // ============================================================
+import {
+  GAUGE_GEOM,
+  TICK_COUNT,
+  TICK_LONG_EVERY,
+  speedToT,
+  pointOnGauge,
+  buildProgressPath,
+  generateTicks,
+} from './lib/gauge.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -42,39 +51,8 @@ const els = {
   toast: $('toast'),
 };
 
-// Геометрия шкалы — соответствует реальному расположению тиков в viewBox 800x460
-// Тики: i=0 (y=460, x=22), i=60 (y=82, x=400), i=120 (y=460, x=778)
-// Значит: cx=400, cy=460, rx=378, ry=378 (полуэллипс с центром внизу viewBox)
-const GAUGE_GEOM = { cx: 400, cy: 460, rx: 378, ry: 378, maxMbps: 1000 };
-
-// Перевод Мбит/с в нормализованное значение 0..1 (логарифмическая шкала: 0→0, 100→0.5, 1000→1)
-function speedToT(mbps) {
-  if (mbps <= 0) return 0;
-  // log10 шкала от 1 до 1000: 1 -> 0, 1000 -> 1
-  const minVal = 1, maxVal = GAUGE_GEOM.maxMbps;
-  const t = (Math.log10(Math.max(mbps, minVal)) - Math.log10(minVal)) / (Math.log10(maxVal) - Math.log10(minVal));
-  return Math.max(0, Math.min(1, t));
-}
-
-// t=0..1 -> координаты на эллиптической дуге (угол от 180° слева до 360°/0° справа)
-function pointOnGauge(t) {
-  const angleDeg = 180 + t * 180; // 180..360
-  const angle = (angleDeg * Math.PI) / 180;
-  return {
-    x: GAUGE_GEOM.cx + Math.cos(angle) * GAUGE_GEOM.rx,
-    y: GAUGE_GEOM.cy + Math.sin(angle) * GAUGE_GEOM.ry,
-  };
-}
-
-// Строим SVG path от начальной точки (t=0) до заданной t
-function buildProgressPath(t) {
-  if (t <= 0) return '';
-  // Эллиптическая дуга — используем SVG arc команду
-  const start = pointOnGauge(0);
-  const end = pointOnGauge(t);
-  // Эллиптическая дуга через ВЕРХ (sweep=1, large=0) — всегда, при любом t
-  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${GAUGE_GEOM.rx} ${GAUGE_GEOM.ry} 0 0 1 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
-}
+// Геометрия и лог-шкала импортируются из ./lib/gauge.js (testable, no DOM).
+// Тики, индикатор и дуга используют одну и ту же GAUGE_GEOM — гарантия отсутствия дрейфа.
 
 function updateIndicator(mbps) {
   const t = speedToT(mbps);
@@ -95,38 +73,18 @@ function updateIndicator(mbps) {
 }
 
 // ---------- Ticks (как у Яндекса) ----------
+// Чистая геометрия — в lib/gauge.js (TICK_COUNT, TICK_LONG_EVERY, generateTicks).
 function buildTicks() {
   const svgNS = 'http://www.w3.org/2000/svg';
-  // Шкала — полукруг снизу + боковые дуги. viewBox 800x460.
-  // Центр эллипса: cx=400, cy=460 (низ). Радиусы: rx=400, ry=240.
-  // Угол от 0 (правая сторона) до 180 (левая) — это верхняя дуга.
-  const cx = 400, cy = 460;
-  const rx = 385, ry = 240;
-  const totalTicks = 121; // шаг через каждые ~1.5 градуса
-  const longEvery = 10;   // длинные тики
   const group = els.ticksGroup;
   group.innerHTML = '';
-
-  for (let i = 0; i < totalTicks; i++) {
-    // угол от 180° (слева) до 360°/0° (справа) — проходим через верх
-    const t = i / (totalTicks - 1); // 0..1
-    const angleDeg = 180 + t * 180;
-    const angle = (angleDeg * Math.PI) / 180;
-
-    const isLong = i % longEvery === 0;
-    const rOuter = isLong ? rx : rx - 4;
-    const rInner = rx - (isLong ? 14 : 8);
-
-    const x1 = cx + Math.cos(angle) * rInner;
-    const y1 = cy + Math.sin(angle) * rInner;
-    const x2 = cx + Math.cos(angle) * rOuter;
-    const y2 = cy + Math.sin(angle) * rOuter;
-
+  const ticks = generateTicks(GAUGE_GEOM, TICK_COUNT, TICK_LONG_EVERY);
+  for (const tick of ticks) {
     const line = document.createElementNS(svgNS, 'line');
-    line.setAttribute('x1', x1.toFixed(2));
-    line.setAttribute('y1', y1.toFixed(2));
-    line.setAttribute('x2', x2.toFixed(2));
-    line.setAttribute('y2', y2.toFixed(2));
+    line.setAttribute('x1', tick.x1.toFixed(2));
+    line.setAttribute('y1', tick.y1.toFixed(2));
+    line.setAttribute('x2', tick.x2.toFixed(2));
+    line.setAttribute('y2', tick.y2.toFixed(2));
     line.setAttribute('class', 'tick');
     group.appendChild(line);
   }

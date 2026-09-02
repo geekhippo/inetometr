@@ -1,32 +1,27 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Test artifacts
+coverage/
+playwright-report/
+test-results/
+playwright/.cache/
+
 # OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# Editors
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
+
+# Local config
+.env
+.env.local
 
 # Logs
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Env / secrets (если будете добавлять .env)
-.env
-.env.local
-.env.*.local
-
-# Temporary
-/tmp/
-*.tmp
-*.bak
-
-# Node (если кто-то решит обернуть в Node.js)
-node_modules/
-package-lock.json
-yarn.lock
