@@ -13,6 +13,7 @@ import {
 import { formatResults, copyToClipboard } from './lib/share.js';
 import { fetchServerMeta, describeServer } from './lib/server-meta.js';
 import { createRollingMedian } from './lib/stats.js';
+import { createCounterAnimator } from './lib/animator.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -32,6 +33,24 @@ const PHASE_LABELS = [
 // Убирает одиночные выбросы (TCP bursts, GC паузы), но не задерживает реакцию.
 const downloadMedian = createRollingMedian(7);
 const uploadMedian = createRollingMedian(7);
+
+// Аниматоры счётчиков — плавное "считание" от текущего значения к новому.
+// 350мс, threshold 0.5 Мбит/с — на малых изменениях не дёргается.
+// Если пользователь предпочитает reduced-motion — анимация отключается (0мс).
+const reducedMotion = typeof window !== 'undefined'
+  && window.matchMedia
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const animDuration = reducedMotion ? 0 : 350;
+const downloadAnim = createCounterAnimator({
+  set: (v) => { els.download.textContent = v.toFixed(2); },
+  duration: animDuration,
+  threshold: 0.5,
+});
+const uploadAnim = createCounterAnimator({
+  set: (v) => { els.upload.textContent = v.toFixed(2); },
+  duration: animDuration,
+  threshold: 0.5,
+});
 
 const state = {
   running: false,
@@ -359,9 +378,11 @@ async function runTest() {
   if (state.running) return;
   state.running = true;
   state.results = { download: 0, upload: 0, ping: 0, jitter: 0 };
-  // Сбросить медианы — иначе первый сэмпл нового замера будет сглажен с предыдущим.
+  // Сбросить медианы и аниматоры — иначе первый сэмпл сглаживается с предыдущим.
   downloadMedian.reset();
   uploadMedian.reset();
+  downloadAnim.reset();
+  uploadAnim.reset();
   els.download.textContent = '—';
   els.upload.textContent = '—';
   els.ping.textContent = '—';
@@ -391,13 +412,13 @@ async function runTest() {
     const dl = await downloadTest((mbps) => {
       // Показываем сглаженное значение, чтобы цифра не прыгала.
       const smoothed = downloadMedian.push(mbps);
-      els.download.textContent = smoothed.toFixed(2);
+      downloadAnim.update(smoothed);
       els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
       pushChartPointThrottled(smoothed);
       updateIndicator(smoothed);
     });
     state.results.download = dl;
-    els.download.textContent = dl.toFixed(2);
+    downloadAnim.update(dl);
     els.chartCurrent.textContent = `${dl.toFixed(2)} Мбит/с`;
     updateIndicator(dl);
     showToast(`Загрузка: ${dl.toFixed(2)} Мбит/с`);
@@ -409,13 +430,13 @@ async function runTest() {
     els.upload.textContent = '…';
     const ul = await uploadTest((mbps) => {
       const smoothed = uploadMedian.push(mbps);
-      els.upload.textContent = smoothed.toFixed(2);
+      uploadAnim.update(smoothed);
       els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
       pushChartPointThrottled(smoothed);
       updateIndicator(smoothed);
     });
     state.results.upload = ul;
-    els.upload.textContent = ul.toFixed(2);
+    uploadAnim.update(ul);
     els.chartCurrent.textContent = `${ul.toFixed(2)} Мбит/с`;
     // Финальный индикатор — оставляем на upload
     updateIndicator(ul);
