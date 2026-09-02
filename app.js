@@ -22,6 +22,7 @@ import {
   buildUrl,
   bytesToHetznerSize,
 } from './lib/speedtest-servers.js';
+import { shareSupport, shareImage } from './lib/share-api.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -93,6 +94,8 @@ const els = {
   copyBtnLabel: document.querySelector('#copy-btn span'),
   imageBtn: $('image-btn'),
   imageBtnLabel: document.querySelector('#image-btn span'),
+  shareBtn: $('share-btn'),
+  shareBtnLabel: document.querySelector('#share-btn span'),
   serverBadge: $('server-badge'),
   serverBadgeText: $('server-badge-text'),
 };
@@ -425,6 +428,42 @@ async function downloadImage() {
   }
 }
 
+// ---------- Web Share API ----------
+async function shareResult() {
+  if (!els.shareBtn) return;
+  const originalLabel = els.shareBtnLabel ? els.shareBtnLabel.textContent : 'Поделиться';
+  if (els.shareBtnLabel) els.shareBtnLabel.textContent = 'Готовлю…';
+  try {
+    const text = formatResults(state.results, state.serverMeta);
+    const url = typeof location !== 'undefined' ? location.href : 'https://inetometr.ru';
+    const filename = `inetometr-${new Date().toISOString().slice(0, 10)}.png`;
+    let result;
+    if (shareSupport().files) {
+      // Попробуем с картинкой
+      const samples = (state.downloadSamples || []).slice(-80);
+      const { blob } = await renderResultImage(state.results, state.serverMeta, samples);
+      result = await shareImage({ title: 'Инетометр', text, url, blob, filename });
+    } else {
+      result = await shareImage({ title: 'Инетометр', text, url, blob: null, filename });
+    }
+    if (result.ok) {
+      if (els.shareBtnLabel) els.shareBtnLabel.textContent = 'Отправлено!';
+    } else if (result.reason === 'aborted') {
+      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+    } else {
+      showToast('Не удалось поделиться', 3000);
+      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+    }
+  } catch (e) {
+    console.error('share:', e);
+    if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+  } finally {
+    setTimeout(() => {
+      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+    }, 1500);
+  }
+}
+
 // ---------- Run ----------
 async function runTest() {
   if (state.running) return;
@@ -501,6 +540,10 @@ async function runTest() {
     showToast(`Готово: ↓${dl.toFixed(1)} / ↑${ul.toFixed(1)} Мбит/с`);
     // Показать блок "Скопировать + бейдж сервера"
     if (els.resultActions) els.resultActions.hidden = false;
+    // Показать "Поделиться" только если устройство поддерживает Web Share API
+    if (els.shareBtn) {
+      els.shareBtn.hidden = !shareSupport().share;
+    }
   } catch (e) {
     console.error(e);
     showToast('Ошибка: ' + (e.message || e), 4000);
@@ -532,6 +575,7 @@ els.startBtn.addEventListener('click', runTest);
 $('info-btn').addEventListener('click', () => $('info-dialog').showModal());
 if (els.copyBtn) els.copyBtn.addEventListener('click', copyResult);
 if (els.imageBtn) els.imageBtn.addEventListener('click', downloadImage);
+if (els.shareBtn) els.shareBtn.addEventListener('click', shareResult);
 
 setStatus(0);
 els.chartCurrent.textContent = '— Мбит/с';
