@@ -56,15 +56,65 @@ if ! command -v certbot >/dev/null 2>&1; then
   fi
 fi
 
-# ── 3. Скачивание исходников (через tar-архив, чтобы выдержать любую структуру) ─
+# ── 3. Скачивание исходников ──────────────────────────────────────────────────
+# Пробуем несколько зеркал. Если GitHub raw заблокирован (404/403/000) —
+# fallback на jsDelivr CDN.
 echo "📥 Скачиваю файлы из GitHub…"
 TMP_DIR=$(mktemp -d)
-# GitHub отдаёт архив репозитория целиком — внутри inetometr-<sha>/ со всеми файлами
-curl -fsSL "https://codeload.github.com/${REPO}/tarball/refs/heads/${BRANCH}" -o "${TMP_DIR}/src.tar.gz"
+
+download_archive() {
+  local url="$1"
+  echo "  → пробую: $url"
+  local out="${TMP_DIR}/src.tar.gz"
+  # -f: fail на HTTP>=400, -s: silent, -L: follow redirects
+  # БЕЗ -S и stderr=/dev/null — чтобы юзер видел ошибку curl
+  if curl -fsL --max-time 30 -A "inetometr-installer" "$url" -o "$out"; then
+    # Проверим размер (>1KB — иначе это HTML 404)
+    local size=$(wc -c < "$out" 2>/dev/null | tr -d ' ')
+    if [ "${size:-0}" -gt 1000 ]; then
+      # Проверим что это gzip/tar, а не HTML страница с 404
+      if file "$out" 2>/dev/null | grep -qi 'gzip\|tar'; then
+        return 0
+      else
+        echo "  ⚠ Скачано, но не похоже на архив (size=$size)"
+      fi
+    else
+      echo "  ⚠ Скачано, но файл слишком мал ($size байт) — возможно 404"
+    fi
+  fi
+  return 1
+}
+
+# Пробуем в порядке приоритета: GitHub codeload → jsDelivr CDN (полный tarball)
+ARCHIVE_OK=0
+for url in \
+  "https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}" \
+  "https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}/?format=targz" \
+  "https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"; do
+  if download_archive "$url"; then
+    ARCHIVE_OK=1
+    echo "  ✓ Скачано с: $url"
+    break
+  fi
+done
+
+if [ "$ARCHIVE_OK" -ne 1 ]; then
+  echo "❌ Не удалось скачать архив ни с одного из зеркал:"
+  echo "   - https://codeload.github.com/${REPO}/tar.gz/refs/heads/${BRANCH}"
+  echo "   - https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}"
+  echo "   - https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz"
+  echo "   Возможные причины: файрвол блокирует GitHub, нет интернета, или DNS не резолвит."
+  echo "   Попробуйте вручную:"
+  echo "     curl -v https://github.com  # проверить доступ"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
+
 tar -xzf "${TMP_DIR}/src.tar.gz" -C "${TMP_DIR}"
 SRC_DIR=$(find "${TMP_DIR}" -maxdepth 1 -type d -name 'inetometr-*' | head -1)
 if [ -z "$SRC_DIR" ]; then
   echo "❌ Не удалось распаковать архив репозитория"
+  rm -rf "$TMP_DIR"
   exit 1
 fi
 
