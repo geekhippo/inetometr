@@ -5,7 +5,9 @@
 #
 # Поведение:
 #   1. Проверяет наличие nginx и certbot (при необходимости устанавливает).
-#   2. Скачивает исходники (index.html, styles.css, app.js) из GitHub в /var/www/inetometr.
+# 2. Скачивает production-файлы (index.html, styles.v12.css, app.js, lib/*.js) из GitHub
+#    в /var/www/inetometr. Dev-артефакты (tests/, .github/, package.json и т.п.)
+#    в архиве есть, но НЕ копируются — только то, что нужно браузеру.
 #   3. Создаёт конфиг nginx для домена $DOMAIN (по умолчанию inetometr.ru).
 #   4. Получает SSL-сертификат Let's Encrypt (опционально).
 #   5. Запускает и добавляет nginx в автозагрузку.
@@ -66,12 +68,46 @@ if [ -z "$SRC_DIR" ]; then
   exit 1
 fi
 
-# Очищаем старую установку и копируем свежие файлы
+# Очищаем старую установку и копируем ТОЛЬКО production-файлы
+# (в архиве репо есть dev-артефакты: .github/, tests/, e2e/, package.json и т.п. —
+#  на проде они не нужны и могут запутать)
 mkdir -p "$INSTALL_DIR"
 rm -rf "${INSTALL_DIR:?}/"*
-cp -r "$SRC_DIR"/. "$INSTALL_DIR"/
+# Список прод-файлов. Если структура изменится — скрипт явно упадёт с понятной ошибкой.
+PROD_FILES=(
+  index.html
+  styles.v12.css
+  app.js
+)
+for f in "${PROD_FILES[@]}"; do
+  if [ ! -f "$SRC_DIR/$f" ]; then
+    echo "❌ В архиве нет обязательного файла: $f"
+    echo "   Возможно, репозиторий повреждён. Проверьте:"
+    echo "   https://github.com/${REPO}/tree/${BRANCH}"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+  cp "$SRC_DIR/$f" "$INSTALL_DIR/"
+done
+# lib/ — подключаемые модули (gauge.js, share.js, server-meta.js)
+if [ -d "$SRC_DIR/lib" ]; then
+  mkdir -p "$INSTALL_DIR/lib"
+  cp -r "$SRC_DIR/lib/." "$INSTALL_DIR/lib/"
+  # Проверим что там есть хоть какие-то .js
+  if ! ls "$INSTALL_DIR/lib"/*.js >/dev/null 2>&1; then
+    echo "❌ В lib/ нет .js файлов — приложение не будет работать"
+    rm -rf "$TMP_DIR"
+    exit 1
+  fi
+else
+  echo "❌ В архиве нет директории lib/ — приложение не будет работать"
+  rm -rf "$TMP_DIR"
+  exit 1
+fi
 rm -rf "$TMP_DIR"
-echo "  ✓ $(ls "$INSTALL_DIR" | wc -l) файлов скопировано"
+TOTAL=$(find "$INSTALL_DIR" -type f | wc -l)
+echo "  ✓ ${TOTAL} production-файлов скопировано в ${INSTALL_DIR}"
+echo "    $(ls "$INSTALL_DIR")"
 
 # Устанавливаем владельца
 if id "www-data" >/dev/null 2>&1; then
