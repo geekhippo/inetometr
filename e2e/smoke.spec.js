@@ -1,6 +1,7 @@
 // E2E: критический путь — замер должен стартануть, шкала отрисоваться, индикатор появиться.
 // Мокируем network через page.route, чтобы тест был детерминированным.
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 test.beforeEach(async ({ page }) => {
   // Подменяем все запросы к Cloudflare — отвечаем быстро и предсказуемо.
@@ -81,6 +82,34 @@ test('бейдж CDN-сервера появляется после probe-зап
   await expect(page.locator('#server-badge-text')).toContainText('RU');
 });
 
+test('Open Graph meta-теги присутствуют для превью при шаринге', async ({ page }) => {
+  await page.goto('/index.html');
+  // og:title
+  const ogTitle = await page.locator('meta[property="og:title"]').getAttribute('content');
+  expect(ogTitle).toContain('Инетометр');
+  // og:image
+  const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content');
+  expect(ogImage).toMatch(/og-image\.(svg|png)$/);
+  // twitter:card
+  const twCard = await page.locator('meta[name="twitter:card"]').getAttribute('content');
+  expect(twCard).toBe('summary_large_image');
+  // og:image:width / height
+  const ogW = await page.locator('meta[property="og:image:width"]').getAttribute('content');
+  const ogH = await page.locator('meta[property="og:image:height"]').getAttribute('content');
+  expect(ogW).toBe('1200');
+  expect(ogH).toBe('630');
+});
+
+test('og-image.svg доступен и валидный SVG', async ({ page }) => {
+  const resp = await page.request.get('/og-image.svg');
+  expect(resp.status()).toBe(200);
+  expect(resp.headers()['content-type']).toMatch(/image\/svg|image/);
+  const body = await resp.text();
+  expect(body).toMatch(/<svg[^>]*viewBox="0 0 1200 630"/);
+  // Должен содержать "Инетометр"
+  expect(body).toContain('Инетометр');
+});
+
 test('кнопка "Скопировать" скрыта до замера и появляется после', async ({ page }) => {
   await page.goto('/index.html');
   // Изначально скрыта
@@ -113,4 +142,32 @@ test('clipboard содержит отформатированный резуль
   expect(text).toContain('inetometr.ru');
   // После успешного копирования label меняется
   await expect(page.locator('#copy-btn')).toContainText('Скопировано!');
+});
+
+test('кнопка "Скачать картинку" генерирует PNG и инициирует скачивание', async ({ page }) => {
+  await page.goto('/index.html');
+  await page.locator('#start-btn').click();
+  await expect(page.locator('.result-actions')).toBeVisible({ timeout: 10000 });
+
+  // Перехватываем download
+  const downloadPromise = page.waitForEvent('download', { timeout: 5000 });
+  await page.locator('#image-btn').click();
+
+  const download = await downloadPromise;
+  // Проверяем имя файла
+  expect(download.suggestedFilename()).toMatch(/^inetometr-\d{4}-\d{2}-\d{2}\.png$/);
+
+  // Сохраняем во временный файл и проверяем что это валидный PNG
+  const path = await download.path();
+  const buf = readFileSync(path);
+  // PNG magic: 89 50 4E 47
+  expect(buf[0]).toBe(0x89);
+  expect(buf[1]).toBe(0x50);
+  expect(buf[2]).toBe(0x4e);
+  expect(buf[3]).toBe(0x47);
+  // Разумный размер: > 1КБ
+  expect(buf.length).toBeGreaterThan(1024);
+
+  // После скачивания label должен измениться
+  await expect(page.locator('#image-btn')).toContainText(/Скачано|Скачать/);
 });
