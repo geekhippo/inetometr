@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { shareSupport, shareText, shareImage } from '../lib/share-api.js';
 
 describe('shareSupport', () => {
