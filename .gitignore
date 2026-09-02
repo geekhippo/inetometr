@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-package-lock.json
+# package-lock.json — коммитим (нужен для CI: npm ci)
 
 # Test artifacts
 coverage/
