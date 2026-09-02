@@ -258,7 +258,7 @@ async function pingTest() {
         continue;
       }
     }
-    if (sample != null) times.push(sample);
+    if (sample !== null && sample !== undefined) times.push(sample);
     await sleep(80);
   }
   times.sort((a, b) => a - b);
@@ -574,7 +574,7 @@ function drawLine(ctx, buckets, metric, padX, padY, w, h, max, days, color) {
 function updateDelta(el, value, arrow) {
   if (!el) return;
   el.classList.remove('history-delta--up', 'history-delta--down', 'history-delta--neutral');
-  if (value == null) {
+  if (value === null || value === undefined) {
     el.textContent = `${arrow} —`;
     el.classList.add('history-delta--neutral');
     return;
@@ -669,9 +669,18 @@ async function runTest() {
       els.shareBtn.hidden = !shareSupport().share;
     }
   } catch (e) {
+    state.partialFailure = true;
     console.error(e);
     showToast('Ошибка: ' + (e.message || e), 4000);
     setStatus(0);
+    // Восстанавливаем «—» в неуспешных метриках, чтобы не показывать
+    // мусор (например, 0.33 Мбит/с — последний сэмпл из onProgress
+    // перед отвалом сервера).
+    if (!state.results.download) { els.download.textContent = '—'; els.chartCurrent.textContent = '— Мбит/с'; }
+    if (!state.results.upload) els.upload.textContent = '—';
+    if (!state.results.ping) els.ping.textContent = '—';
+    // Скрываем кнопки результата, если замер не удался
+    if (els.resultActions) els.resultActions.hidden = true;
   } finally {
     state.running = false;
     els.startBtn.disabled = false;

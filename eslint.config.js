@@ -40,6 +40,11 @@ export default [
         DOMException: 'readonly',
         Event: 'readonly',
         localStorage: 'readonly',
+        XMLHttpRequest: 'readonly',
+        FormData: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        ProgressEvent: 'readonly',
         // Node (для тестов)
         process: 'readonly',
       },
