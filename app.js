@@ -10,6 +10,8 @@ import {
   buildProgressPath,
   generateTicks,
 } from './lib/gauge.js';
+import { formatResults, copyToClipboard } from './lib/share.js';
+import { fetchServerMeta, describeServer } from './lib/server-meta.js';
 
 const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
 const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
@@ -28,6 +30,7 @@ const state = {
   running: false,
   results: { download: 0, upload: 0, ping: 0, jitter: 0 },
   chart: { data: [], max: 0, sum: 0, count: 0, min: Infinity },
+  serverMeta: {},
 };
 
 // ---------- DOM ----------
@@ -49,6 +52,11 @@ const els = {
   progressArc: $('progress-arc'),
   indicator: $('indicator'),
   toast: $('toast'),
+  resultActions: document.querySelector('.result-actions'),
+  copyBtn: $('copy-btn'),
+  copyBtnLabel: document.querySelector('#copy-btn span'),
+  serverBadge: $('server-badge'),
+  serverBadgeText: $('server-badge-text'),
 };
 
 // Геометрия и лог-шкала импортируются из ./lib/gauge.js (testable, no DOM).
@@ -298,6 +306,47 @@ async function uploadTest(onProgress) {
   return allSpeeds[Math.floor(allSpeeds.length / 2)] || 0;
 }
 
+// ---------- Server meta (CDN) ----------
+// При загрузке страницы делаем probe-чанк (1 КБ) к Cloudflare и парсим cf-meta-* заголовки.
+// Это нужно для бейджа "Замер с сервера MOW" и для текста в копии результата.
+async function initServerMeta() {
+  els.serverBadgeText.textContent = 'Определяем сервер…';
+  try {
+    const meta = await fetchServerMeta();
+    state.serverMeta = meta;
+    showServerBadge();
+  } catch {
+    state.serverMeta = {};
+    els.serverBadgeText.textContent = 'Сервер неизвестен';
+  }
+}
+
+function showServerBadge() {
+  const desc = describeServer(state.serverMeta);
+  if (desc) {
+    els.serverBadgeText.textContent = `Замер с: ${desc}`;
+  } else {
+    els.serverBadgeText.textContent = 'Сервер неизвестен';
+  }
+}
+
+// ---------- Copy result ----------
+async function copyResult() {
+  const text = formatResults(state.results, state.serverMeta);
+  const ok = await copyToClipboard(text);
+  if (ok) {
+    els.copyBtn.classList.add('copied');
+    if (els.copyBtnLabel) els.copyBtnLabel.textContent = 'Скопировано!';
+    showToast('Результат скопирован в буфер обмена');
+    setTimeout(() => {
+      els.copyBtn.classList.remove('copied');
+      if (els.copyBtnLabel) els.copyBtnLabel.textContent = 'Скопировать результат';
+    }, 2000);
+  } else {
+    showToast('Не удалось скопировать — скопируйте вручную', 3000);
+  }
+}
+
 // ---------- Run ----------
 async function runTest() {
   if (state.running) return;
@@ -313,6 +362,8 @@ async function runTest() {
   els.indicator.classList.remove('visible');
   els.startBtn.disabled = true;
   els.startBtn.classList.add('running');
+  // Скрыть кнопку "Скопировать" до завершения нового замера
+  if (els.resultActions) els.resultActions.hidden = true;
 
   try {
     // Phase 1: Ping
@@ -359,6 +410,8 @@ async function runTest() {
 
     setStatus(5);
     showToast(`Готово: ↓${dl.toFixed(1)} / ↑${ul.toFixed(1)} Мбит/с`);
+    // Показать блок "Скопировать + бейдж сервера"
+    if (els.resultActions) els.resultActions.hidden = false;
   } catch (e) {
     console.error(e);
     showToast('Ошибка: ' + (e.message || e), 4000);
@@ -388,10 +441,15 @@ function showToast(msg, ms = 2500) {
 // ---------- Wire up ----------
 els.startBtn.addEventListener('click', runTest);
 $('info-btn').addEventListener('click', () => $('info-dialog').showModal());
+if (els.copyBtn) els.copyBtn.addEventListener('click', copyResult);
 
 setStatus(0);
 els.chartCurrent.textContent = '— Мбит/с';
 window.addEventListener('resize', drawChart);
+
+// Запустить определение CDN-сервера сразу при загрузке страницы
+// (не блокирует UI; результат появится в бейдже)
+initServerMeta();
 
 window.addEventListener('error', (e) => {
   console.error('[ERR]', e.message);
