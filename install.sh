@@ -178,10 +178,16 @@ server {
     root ${INSTALL_DIR};
     index index.html;
 
-    # Кеширование статики
-    location ~* \.(css|js|svg|png|jpg|jpeg|gif|ico|woff2?)$ {
+    # Кеширование статики: js/css — 1 час (можно быстро обновлять через ?v=N),
+    # картинки/шрифты — 7 дней (они стабильны).
+    location ~* \.(css|js)$ {
+        expires 1h;
+        add_header Cache-Control "public, max-age=3600";
+        try_files \$uri =404;
+    }
+    location ~* \.(svg|png|jpg|jpeg|gif|ico|woff2?)$ {
         expires 7d;
-        add_header Cache-Control "public, max-age=604800, immutable";
+        add_header Cache-Control "public, max-age=604800";
         try_files \$uri =404;
     }
 

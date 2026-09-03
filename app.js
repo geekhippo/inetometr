@@ -361,7 +361,12 @@ async function uploadTest(onProgress) {
       try {
         const url = buildUrl(server.uploadUrl, { n: Date.now() });
         const mbps = await uploadViaXHR(url, data, onProgress);
-        if (mbps > 0) {
+        // Считаем успешным только если скорость выше минимального порога.
+        // 0.5 Мбит/с — отсекает «зависшие» сервера, которые возвращают
+        // 200 OK почти мгновенно с mbps < 0.5 (например, Cloudflare на
+        // некоторых IP режет upload, отдавая «success» с минимальным
+        // прогрессом). Тогда считаем сервер нерабочим и пробуем следующий.
+        if (mbps >= 0.5) {
           allSpeeds.push(mbps);
           state.usedServers.upload = server.id;
           worked = true;
