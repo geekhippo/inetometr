@@ -33,10 +33,10 @@
 
   /* Типографика (fluid: min → preferred → max) */
   /* font-size: clamp(min, fluid, max) */
-  --fs-metric:  clamp(22px, 4.5vw, 32px);   /* цифры скорости */
-  --fs-metric-small: clamp(20px, 4vw, 28px); /* для очень узких */
-  --fs-metric-head: clamp(11px, 2.2vw, 13px);
-  --fs-unit: clamp(10px, 2vw, 12px);
+  --fs-metric:  clamp(29px, 5.2vw, 39px);   /* цифры скорости +5 */
+  --fs-metric-small: clamp(27px, 4.7vw, 35px);
+  --fs-metric-head: clamp(12px, 2.4vw, 14px);
+  --fs-unit: clamp(11px, 2.2vw, 13px);
   --fs-logo: clamp(18px, 4.2vw, 22px);
   --fs-btn: clamp(15px, 3.4vw, 18px);
   --fs-status: clamp(13px, 2.8vw, 15px);
@@ -187,7 +187,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
+  top: calc(50% + 10px);
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   align-items: end;
@@ -249,7 +249,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  top: 75%;
+  top: calc(75% + 3px);
   text-align: center;
   font-size: var(--fs-status);
   color: var(--text-dim);
