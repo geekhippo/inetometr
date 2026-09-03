@@ -268,8 +268,8 @@ body {
 .primary-btn {
   position: absolute;
   top: calc(90% + 4px);
-  left: clamp(8px, 4vw, 80px);
-  right: clamp(8px, 4vw, 80px);
+  left: 25%;
+  right: 25%;
   width: auto;
   min-height: 53px;
   padding: clamp(10px, 2.2vw, 16px);
