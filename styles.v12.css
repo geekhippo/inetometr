@@ -131,14 +131,26 @@ body {
   position: relative;
   background: var(--bg);
   padding: 0;
-}
-.gauge-svg {
+  /* Высота секции = высоте SVG, чтобы absolute-дети
+     (.gauge-metrics, .gauge-status, .primary-btn) позиционировались
+     относительно низа полусферы, а не растянутого контейнера.
+     Иначе .app { min-height: 100vh } растягивает секцию на всю высоту
+     экрана и primary-btn { bottom: 0 } улетает в самый низ body. */
   width: 100%;
-  height: auto;
-  display: block;
-  /* Высота шкалы — адаптивно. ~57% от ширины viewBox (460/800). */
   aspect-ratio: 800 / 460;
   max-height: clamp(280px, 50vh, 500px);
+  margin: 0 auto;
+  /* Не растягиваемся внутри .app (flex column, min-height: 100vh).
+     Иначе absolute-дети позиционируются относительно высоты 100vh. */
+  flex: 0 0 auto;
+  align-self: center;
+}
+.gauge-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 /* Тики */

@@ -92,12 +92,13 @@
 
       <!-- Состояние: текущая фаза -->
       <div class="gauge-status" id="gauge-status" role="status" aria-live="polite">Готов к замеру</div>
-    </section>
 
-    <!-- Кнопка замера -->
-    <button class="primary-btn" id="start-btn" aria-controls="gauge-section" aria-describedby="gauge-status">
-      <span class="btn-label">Начать замер</span>
-    </button>
+      <!-- Кнопка замера — ВНУТРИ gauge-section, чтобы position:absolute bottom:0
+           был относительно низа полусферы, а не body/.app. -->
+      <button class="primary-btn" id="start-btn" aria-controls="gauge-section" aria-describedby="gauge-status">
+        <span class="btn-label">Начать замер</span>
+      </button>
+    </section>
 
     <!-- График скорости -->
     <section class="chart-card" id="chart-card" aria-labelledby="chart-title">
