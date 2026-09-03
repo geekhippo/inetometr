@@ -33,10 +33,10 @@
 
   /* Типографика (fluid: min → preferred → max) */
   /* font-size: clamp(min, fluid, max) */
-  --fs-metric:  clamp(32px, 8vw, 56px);   /* цифры скорости */
-  --fs-metric-small: clamp(28px, 6.5vw, 44px); /* для очень узких */
-  --fs-metric-head: clamp(12px, 2.6vw, 15px);
-  --fs-unit: clamp(11px, 2.4vw, 13px);
+  --fs-metric:  clamp(22px, 4.5vw, 32px);   /* цифры скорости */
+  --fs-metric-small: clamp(20px, 4vw, 28px); /* для очень узких */
+  --fs-metric-head: clamp(11px, 2.2vw, 13px);
+  --fs-unit: clamp(10px, 2vw, 12px);
   --fs-logo: clamp(18px, 4.2vw, 22px);
   --fs-btn: clamp(15px, 3.4vw, 18px);
   --fs-status: clamp(13px, 2.8vw, 15px);
@@ -127,21 +127,22 @@ body {
    SVG: viewBox="0 0 800 460", cx=400, cy=460, rx=ry=378
    Метрики позиционируются абсолютно поверх SVG.
    ============================================================ */
+/* Метрики, статус и кнопка — ВНУТРИ полусферы (absolute поверх SVG).
+   Геометрия viewBox 0..800 × 0..460:
+   - cy=460, rx=ry=378 — нижние точки шкалы на y=460
+   - метрики   top: 70%  (y≈322)
+   - status    top: 86%  (y≈395)
+   - кнопка    bottom: 2% (y≈451) — вровень с нижними точками шкалы
+   .gauge-section имеет ту же aspect-ratio что и SVG, чтобы absolute-дети
+   позиционировались относительно низа полусферы, а не body. */
 .gauge-section {
   position: relative;
   background: var(--bg);
   padding: 0;
-  /* Высота секции = высоте SVG, чтобы absolute-дети
-     (.gauge-metrics, .gauge-status, .primary-btn) позиционировались
-     относительно низа полусферы, а не растянутого контейнера.
-     Иначе .app { min-height: 100vh } растягивает секцию на всю высоту
-     экрана и primary-btn { bottom: 0 } улетает в самый низ body. */
   width: 100%;
   aspect-ratio: 800 / 460;
-  max-height: clamp(280px, 50vh, 500px);
+  max-height: clamp(420px, 60vh, 620px);
   margin: 0 auto;
-  /* Не растягиваемся внутри .app (flex column, min-height: 100vh).
-     Иначе absolute-дети позиционируются относительно высоты 100vh. */
   flex: 0 0 auto;
   align-self: center;
 }
@@ -180,18 +181,17 @@ body {
 }
 .indicator.visible { opacity: 1; }
 
-/* Метрики — поверх SVG, у нижней части дуги.
-   viewBox: 0..800 × 0..460. cy=460, rx=ry=378 — нижние точки на y=460.
-   Метрики: y≈400 (87% от 460), кнопка: y≈460 (100%, самая кромка). */
+/* Метрики — ВНУТРИ полусферы, в верхней половине, выше кнопки.
+   Симметрично: 3 равные колонки с маленьким gap. */
 .gauge-metrics {
   position: absolute;
   left: 0;
   right: 0;
-  /* y = 400 в viewBox 460 → 400/460 = 86.96% */
-  top: 73%;
+  top: 50%;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: clamp(8px, 2vw, 24px);
+  align-items: end;
+  gap: 0;
   padding: 0 clamp(8px, 4vw, 80px);
   z-index: 2;
   pointer-events: none;
@@ -232,8 +232,8 @@ body {
   letter-spacing: -0.03em;
   color: var(--text);
   font-variant-numeric: tabular-nums;
-  line-height: 1.05;
-  margin-bottom: 4px;
+  line-height: 1.0;
+  margin-bottom: 2px;
   /* Защита от переполнения на маленьких экранах */
   white-space: nowrap;
   overflow: hidden;
@@ -242,34 +242,36 @@ body {
 .g-metric-unit {
   font-size: var(--fs-unit);
   color: var(--text-dim);
+  line-height: 1.0;
 }
 
 .gauge-status {
   position: absolute;
   left: 0;
   right: 0;
-  /* y = 430 в viewBox 460 → 93.5% (между метриками и кнопкой) */
-  top: 90%;
+  top: 75%;
   text-align: center;
   font-size: var(--fs-status);
   color: var(--text-dim);
-  min-height: 1.4em;
+  min-height: 24px;
   margin: 0;
   z-index: 2;
   pointer-events: none;
+  display: block;
 }
 
 /* ============================================================
-   Primary button
+   Primary button — ВНУТРИ полусферы, нижний край ВРОВЕНЬ с нижними точками.
+   SVG viewBox 0 0 800 460, cy=460 — низ полусферы = 100% секции.
+   top: 88% (405px), height: 48px → bottom ≈ 453 (7px от низа).
    ============================================================ */
 .primary-btn {
   position: absolute;
-  /* Низ кнопки = низ полусферы (y=460/460 = 100%) */
-  bottom: 0;
+  top: calc(90% + 4px);
   left: clamp(8px, 4vw, 80px);
   right: clamp(8px, 4vw, 80px);
   width: auto;
-  min-height: 44px;
+  min-height: 53px;
   padding: clamp(10px, 2.2vw, 16px);
   background: var(--accent);
   border: none;
@@ -473,7 +475,7 @@ body {
    Чуть больше воздуха, метрики читаемее.
    ============================================================ */
 @media (min-width: 480px) {
-  .primary-btn { max-width: 480px; }
+  /* .primary-btn без max-width: должна быть на всю ширину внутри полусферы */
 }
 
 /* ============================================================
@@ -498,7 +500,7 @@ body {
   .app { padding: max(env(safe-area-inset-top), 16px) 32px
                    max(env(safe-area-inset-bottom), 24px) 32px; }
   .gauge-metrics { padding: 0 80px; gap: 24px; }
-  .primary-btn { max-width: 520px; }
+  /* .primary-btn без max-width: должна быть на всю ширину внутри полусферы */
   .chart-card { margin-top: 24px; }
 }
 
