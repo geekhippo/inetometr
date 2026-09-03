@@ -130,10 +130,7 @@ body {
 .gauge-section {
   position: relative;
   background: var(--bg);
-  padding: 4px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(8px, 2vw, 16px);
+  padding: 0;
 }
 .gauge-svg {
   width: 100%;
@@ -171,13 +168,21 @@ body {
 }
 .indicator.visible { opacity: 1; }
 
-/* Метрики — естественный поток, под шкалой.
-   В исходном дизайне (Яндекс) метрики внизу шкалы — реализуем flex-раскладкой. */
+/* Метрики — поверх SVG, у нижней части дуги.
+   viewBox: 0..800 × 0..460. cy=460, rx=ry=378 — нижние точки на y=460.
+   Метрики: y≈400 (87% от 460), кнопка: y≈460 (100%, самая кромка). */
 .gauge-metrics {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* y = 400 в viewBox 460 → 400/460 = 86.96% */
+  top: 73%;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
   gap: clamp(8px, 2vw, 24px);
   padding: 0 clamp(8px, 4vw, 80px);
+  z-index: 2;
+  pointer-events: none;
 }
 .g-metric {
   text-align: center;
@@ -228,20 +233,32 @@ body {
 }
 
 .gauge-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* y = 430 в viewBox 460 → 93.5% (между метриками и кнопкой) */
+  top: 90%;
   text-align: center;
   font-size: var(--fs-status);
   color: var(--text-dim);
   min-height: 1.4em;
   margin: 0;
+  z-index: 2;
+  pointer-events: none;
 }
 
 /* ============================================================
    Primary button
    ============================================================ */
 .primary-btn {
-  width: 100%;
-  min-height: 56px; /* WCAG AAA touch target */
-  padding: clamp(14px, 3vw, 20px);
+  position: absolute;
+  /* Низ кнопки = низ полусферы (y=460/460 = 100%) */
+  bottom: 0;
+  left: clamp(8px, 4vw, 80px);
+  right: clamp(8px, 4vw, 80px);
+  width: auto;
+  min-height: 44px;
+  padding: clamp(10px, 2.2vw, 16px);
   background: var(--accent);
   border: none;
   border-radius: var(--radius);
@@ -250,11 +267,10 @@ body {
   font-size: var(--fs-btn);
   font-weight: 500;
   cursor: pointer;
-  position: relative;
   overflow: hidden;
   box-shadow: var(--shadow-btn);
   transition: background 0.2s, transform 0.1s;
-  margin-top: var(--gap-section);
+  z-index: 3;
 }
 .primary-btn:hover { background: var(--accent-hover); }
 .primary-btn:active { transform: scale(0.99); }
@@ -445,7 +461,7 @@ body {
    Чуть больше воздуха, метрики читаемее.
    ============================================================ */
 @media (min-width: 480px) {
-  .primary-btn { max-width: 480px; margin-left: auto; margin-right: auto; display: block; }
+  .primary-btn { max-width: 480px; }
 }
 
 /* ============================================================
@@ -470,7 +486,7 @@ body {
   .app { padding: max(env(safe-area-inset-top), 16px) 32px
                    max(env(safe-area-inset-bottom), 24px) 32px; }
   .gauge-metrics { padding: 0 80px; gap: 24px; }
-  .primary-btn { max-width: 520px; margin-top: 24px; }
+  .primary-btn { max-width: 520px; }
   .chart-card { margin-top: 24px; }
 }
 
@@ -492,7 +508,7 @@ body {
   .gauge-svg { max-height: 340px; }
   .gauge-metrics { padding: 0 60px; gap: 14px; }
   .g-metric-value { font-size: 40px; }
-  .primary-btn { padding: 12px; margin-top: 16px; min-height: 48px; }
+  .primary-btn { padding: 10px; min-height: 44px; }
   .chart-card { margin-top: 16px; }
   #chart-canvas { height: 120px; }
 }
@@ -524,7 +540,7 @@ body {
   .g-metric-head { font-size: 10px; margin-bottom: 0; }
   .g-metric-unit { font-size: 9px; }
   .gauge-status { font-size: 11px; min-height: 1em; }
-  .primary-btn { padding: 8px; font-size: 13px; margin-top: 6px; min-height: 36px; }
+  .primary-btn { padding: 6px; font-size: 13px; min-height: 32px; }
   .chart-card { margin-top: 8px; }
   .chart-head { margin-bottom: 4px; }
   #chart-canvas { height: 60px; }
