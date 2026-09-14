@@ -129,6 +129,7 @@ PROD_FILES=(
   styles.v12.css
   app.js
   og-image.svg
+  speedtest/50mb.bin
 )
 for f in "${PROD_FILES[@]}"; do
   if [ ! -f "$SRC_DIR/$f" ]; then
@@ -138,7 +139,8 @@ for f in "${PROD_FILES[@]}"; do
     rm -rf "$TMP_DIR"
     exit 1
   fi
-  cp "$SRC_DIR/$f" "$INSTALL_DIR/"
+  mkdir -p "$INSTALL_DIR/$(dirname "$f")"
+  cp "$SRC_DIR/$f" "$INSTALL_DIR/$f"
 done
 # lib/ — подключаемые модули (gauge.js, share.js, server-meta.js)
 if [ -d "$SRC_DIR/lib" ]; then

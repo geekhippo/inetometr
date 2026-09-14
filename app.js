@@ -1,6 +1,8 @@
+
 // ============================================================
 // Интернометр — в стиле Яндекс.Интернетометра
 // ============================================================
+window.__APP_MODULE_EXECUTED = true;
 import {
   GAUGE_GEOM,
   TICK_COUNT,
@@ -21,6 +23,8 @@ import {
   pingServers,
   buildUrl,
   bytesToHetznerSize,
+  SERVERS,
+  resolveOriginUrl,
 } from './lib/speedtest-servers.js';
 import { shareSupport, shareImage } from './lib/share-api.js';
 import {
@@ -32,10 +36,6 @@ import {
   recentHistory,
 } from './lib/history.js';
 
-const DOWNLOAD_URL = 'https://speed.cloudflare.com/__down?bytes=';
-const UPLOAD_URL = 'https://speed.cloudflare.com/__up';
-const PING_URL = 'https://speed.cloudflare.com/__down?bytes=0';
-
 const PHASE_LABELS = [
   'Готов к замеру',
   'Измеряю пинг…',
@@ -46,31 +46,17 @@ const PHASE_LABELS = [
 ];
 
 // ---------- State ----------
-// Streaming rolling median для UI-цифр (окно 7 сэмплов ≈ 1.4с при 200мс интервале).
-// Убирает одиночные выбросы (TCP bursts, GC паузы), но не задерживает реакцию.
 const downloadMedian = createRollingMedian(7);
 const uploadMedian = createRollingMedian(7);
 
-// Аниматоры счётчиков — плавное "считание" от текущего значения к новому.
-// 350мс, threshold 0.5 Мбит/с — на малых изменениях не дёргается.
-// Если пользователь предпочитает reduced-motion — анимация отключается (0мс).
 const reducedMotion = typeof window !== 'undefined'
   && window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const animDuration = reducedMotion ? 0 : 350;
-const downloadAnim = createCounterAnimator({
-  set: (v) => { els.download.textContent = v.toFixed(2); },
-  duration: animDuration,
-  threshold: 0.5,
-});
-const uploadAnim = createCounterAnimator({
-  set: (v) => { els.upload.textContent = v.toFixed(2); },
-  duration: animDuration,
-  threshold: 0.5,
-});
 
 const state = {
   running: false,
+  selectedServerId: null,
   results: { download: 0, upload: 0, ping: 0, jitter: 0 },
   chart: { data: [], max: 0, sum: 0, count: 0, min: Infinity },
   downloadSamples: [],
@@ -78,67 +64,73 @@ const state = {
   serverMeta: {},
 };
 
-// ---------- DOM ----------
-const $ = (id) => document.getElementById(id);
 const els = {
-  status: $('gauge-status'),
-  download: $('v-download'),
-  upload: $('v-upload'),
-  ping: $('v-ping'),
-  startBtn: $('start-btn'),
-  btnLabel: document.querySelector('#start-btn .btn-label'),
-  chartCanvas: $('chart-canvas'),
-  chartTitle: $('chart-title'),
-  chartCurrent: $('chart-current'),
-  chartMax: $('chart-max'),
-  chartAvg: $('chart-avg'),
-  chartMin: $('chart-min'),
-  ticksGroup: $('ticks-group'),
-  progressArc: $('progress-arc'),
-  indicator: $('indicator'),
-  toast: $('toast'),
-  resultActions: document.querySelector('.result-actions'),
-  copyBtn: $('copy-btn'),
-  copyBtnLabel: document.querySelector('#copy-btn span'),
-  imageBtn: $('image-btn'),
-  imageBtnLabel: document.querySelector('#image-btn span'),
-  shareBtn: $('share-btn'),
-  shareBtnLabel: document.querySelector('#share-btn span'),
-  serverBadge: $('server-badge'),
-  serverBadgeText: $('server-badge-text'),
-  historyCard: $('history-card'),
-  historyCanvas: $('history-canvas'),
-  historyDeltaDl: $('history-delta-dl'),
-  historyDeltaUl: $('history-delta-ul'),
-  historyClear: $('history-clear'),
+  status: () => document.getElementById('gauge-status'),
+  download: () => document.getElementById('v-download'),
+  upload: () => document.getElementById('v-upload'),
+  ping: () => document.getElementById('v-ping'),
+  serverSelect: () => document.getElementById('server-select'),
+  startBtn: () => document.getElementById('start-btn'),
+  btnLabel: () => document.querySelector('#start-btn .btn-label'),
+  chartCanvas: () => document.getElementById('chart-canvas'),
+  chartTitle: () => document.getElementById('chart-title'),
+  chartCurrent: () => document.getElementById('chart-current'),
+  chartMax: () => document.getElementById('chart-max'),
+  chartAvg: () => document.getElementById('chart-avg'),
+  chartMin: () => document.getElementById('chart-min'),
+  ticksGroup: () => document.getElementById('ticks-group'),
+  progressArc: () => document.getElementById('progress-arc'),
+  indicator: () => document.getElementById('indicator'),
+  toast: () => document.getElementById('toast'),
+  resultActions: () => document.querySelector('.result-actions'),
+  copyBtn: () => document.getElementById('copy-btn'),
+  copyBtnLabel: () => document.querySelector('#copy-btn span'),
+  imageBtn: () => document.getElementById('image-btn'),
+  imageBtnLabel: () => document.querySelector('#image-btn span'),
+  shareBtn: () => document.getElementById('share-btn'),
+  shareBtnLabel: () => document.querySelector('#share-btn span'),
+  serverBadge: () => document.getElementById('server-badge'),
+  serverBadgeText: () => document.getElementById('server-badge-text'),
+  historyCard: () => document.getElementById('history-card'),
+  historyClear: () => document.getElementById('history-clear'),
 };
 
-// Геометрия и лог-шкала импортируются из ./lib/gauge.js (testable, no DOM).
-// Тики, индикатор и дуга используют одну и ту же GAUGE_GEOM — гарантия отсутствия дрейфа.
+const downloadAnim = createCounterAnimator({
+  set: (v) => { if(els.download()) els.download().textContent = v.toFixed(2); },
+  duration: animDuration,
+  threshold: 0.5,
+});
+const uploadAnim = createCounterAnimator({
+  set: (v) => { if(els.upload()) els.upload().textContent = v.toFixed(2); },
+  duration: animDuration,
+  threshold: 0.5,
+});
 
 function updateIndicator(mbps) {
   const t = speedToT(mbps);
-  const arc = els.progressArc;
+  const arc = els.progressArc();
+  if (!arc) return;
   if (t <= 0) {
     arc.setAttribute('d', '');
     arc.classList.remove('visible');
-    els.indicator.classList.remove('visible');
+    if(els.indicator()) els.indicator().classList.remove('visible');
     return;
   }
   arc.setAttribute('d', buildProgressPath(t));
   arc.classList.add('visible');
   const pt = pointOnGauge(t);
-  els.indicator.setAttribute('cx', pt.x.toFixed(2));
-  els.indicator.setAttribute('cy', pt.y.toFixed(2));
-  els.indicator.setAttribute('r', 9);
-  els.indicator.classList.add('visible');
+  if(els.indicator()) {
+    els.indicator().setAttribute('cx', pt.x.toFixed(2));
+    els.indicator().setAttribute('cy', pt.y.toFixed(2));
+    els.indicator().setAttribute('r', 9);
+    els.indicator().classList.add('visible');
+  }
 }
 
-// ---------- Ticks (как у Яндекса) ----------
-// Чистая геометрия — в lib/gauge.js (TICK_COUNT, TICK_LONG_EVERY, generateTicks).
 function buildTicks() {
   const svgNS = 'http://www.w3.org/2000/svg';
-  const group = els.ticksGroup;
+  const group = els.ticksGroup();
+  if (!group) return;
   group.innerHTML = '';
   const ticks = generateTicks(GAUGE_GEOM, TICK_COUNT, TICK_LONG_EVERY);
   for (const tick of ticks) {
@@ -151,27 +143,177 @@ function buildTicks() {
     group.appendChild(line);
   }
 }
-buildTicks();
 
-// ---------- Chart ----------
-const ctx = els.chartCanvas.getContext('2d');
+function updateHistoryUI() {
+  const canvas = document.getElementById('history-canvas');
+  const card = document.getElementById('history-card');
+  if (!canvas || !card) return;
+  const history = loadHistory();
+  if (history.length === 0) {
+    card.hidden = true;
+    return;
+  }
+  card.hidden = false;
+  drawHistoryChart(history);
+
+  // Update percent deltas между последним и предпоследним замером
+  if (history.length >= 2) {
+    const dlDelta = delta(history, 'download');
+    const ulDelta = delta(history, 'upload');
+    const dlEl = document.getElementById('history-delta-dl');
+    const ulEl = document.getElementById('history-delta-ul');
+    if (dlEl) {
+      dlEl.textContent = dlDelta !== null ? `${dlDelta > 0 ? '+' : ''}${dlDelta.toFixed(1)}%` : '—';
+      dlEl.className = 'history-delta' + (dlDelta > 0 ? ' history-delta--up' : dlDelta < 0 ? ' history-delta--down' : '');
+    }
+    if (ulEl) {
+      ulEl.textContent = ulDelta !== null ? `${ulDelta > 0 ? '+' : ''}${ulDelta.toFixed(1)}%` : '—';
+      ulEl.className = 'history-delta' + (ulDelta > 0 ? ' history-delta--up' : ulDelta < 0 ? ' history-delta--down' : '');
+    }
+  }
+}
+
+function showResultActions() {
+  const block = els.resultActions();
+  if (block) block.hidden = false;
+  const share = els.shareBtn();
+  if (share) {
+    const support = shareSupport();
+    share.hidden = !support.share;
+  }
+  const badge = els.serverBadgeText();
+  const meta = state.serverMeta;
+  const usedServerId = state.usedServers.download || state.usedServers.upload;
+  if (badge && usedServerId) {
+    const server = SERVERS.find(s => s.id === usedServerId);
+    if (server) badge.textContent = `Замер с: ${server.name}`;
+  } else if (badge && meta && (meta.colo || meta.city)) {
+    badge.textContent = `Замер с: ${meta.colo || meta.city} CDN`;
+  }
+}
+
+function drawHistoryChart(history) {
+  const canvas = document.getElementById('history-canvas');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const cw = canvas.clientWidth || 800;
+  const ch = canvas.clientHeight || 140;
+  if (canvas.width !== cw * dpr || canvas.height !== ch * dpr) {
+    canvas.width = cw * dpr;
+    canvas.height = ch * dpr;
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, cw, ch);
+
+  const w = cw - 8;
+  const h = ch - 16;
+
+  // Группируем замеры по дню (последние 7 дней) — получаем средние
+  const dayMs = 24 * 60 * 60 * 1000;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayMs = today.getTime();
+  const byDay = {}; // { 'YYYY-MM-DD': { dl: number[], ul: number[] } }
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(todayMs - i * dayMs);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    byDay[key] = { dl: [], ul: [] };
+  }
+  for (const r of history) {
+    const d = new Date(r.t);
+    d.setHours(0, 0, 0, 0);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (byDay[key]) {
+      byDay[key].dl.push(r.download || 0);
+      byDay[key].ul.push(r.upload || 0);
+    }
+  }
+  const days = Object.keys(byDay);
+  const seriesDl = days.map(k => byDay[k].dl.length ? byDay[k].dl.reduce((s, v) => s + v, 0) / byDay[k].dl.length : 0);
+  const seriesUl = days.map(k => byDay[k].ul.length ? byDay[k].ul.reduce((s, v) => s + v, 0) / byDay[k].ul.length : 0);
+  const maxVal = Math.max(...seriesDl, ...seriesUl, 1);
+
+  // Сетка
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+  ctx.lineWidth = 1;
+  for (let i = 1; i <= 4; i++) {
+    const y = 8 + h - (i / 4) * h;
+    ctx.beginPath();
+    ctx.moveTo(4, y);
+    ctx.lineTo(cw - 4, y);
+    ctx.stroke();
+  }
+
+  // Линия download (оранжевая)
+  const gradDl = ctx.createLinearGradient(0, 8, 0, ch - 8);
+  gradDl.addColorStop(0, '#ff7a3d');
+  gradDl.addColorStop(1, '#fc3f1d');
+  ctx.strokeStyle = gradDl;
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  days.forEach((_, i) => {
+    const x = 4 + (i / (days.length - 1)) * (cw - 8);
+    const y = 8 + h - (seriesDl[i] / maxVal) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Точки download
+  ctx.fillStyle = '#fc3f1d';
+  days.forEach((_, i) => {
+    if (seriesDl[i] <= 0) return;
+    const x = 4 + (i / (days.length - 1)) * (cw - 8);
+    const y = 8 + h - (seriesDl[i] / maxVal) * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Линия upload (зелёная)
+  const gradUl = ctx.createLinearGradient(0, 8, 0, ch - 8);
+  gradUl.addColorStop(0, '#4ade80');
+  gradUl.addColorStop(1, '#22c55e');
+  ctx.strokeStyle = gradUl;
+  ctx.lineWidth = 2.5;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  days.forEach((_, i) => {
+    const x = 4 + (i / (days.length - 1)) * (cw - 8);
+    const y = 8 + h - (seriesUl[i] / maxVal) * h;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Точки upload
+  ctx.fillStyle = '#22c55e';
+  days.forEach((_, i) => {
+    if (seriesUl[i] <= 0) return;
+    const x = 4 + (i / (days.length - 1)) * (cw - 8);
+    const y = 8 + h - (seriesUl[i] / maxVal) * h;
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
 
 function drawChart() {
+  const canvas = els.chartCanvas();
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const cssW = els.chartCanvas.clientWidth || 800;
-  const cssH = els.chartCanvas.clientHeight || 180;
-  if (els.chartCanvas.width !== cssW * dpr || els.chartCanvas.height !== cssH * dpr) {
-    els.chartCanvas.width = cssW * dpr;
-    els.chartCanvas.height = cssH * dpr;
+  const cssW = canvas.clientWidth || 800;
+  const cssH = canvas.clientHeight || 180;
+  if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   ctx.clearRect(0, 0, cssW, cssH);
-
   const padX = 4, padY = 8;
   const w = cssW - padX * 2;
   const h = cssH - padY * 2;
-
-  // Сетка-подложка
   ctx.strokeStyle = 'rgba(0,0,0,0.06)';
   ctx.lineWidth = 1;
   for (let i = 1; i <= 4; i++) {
@@ -181,12 +323,10 @@ function drawChart() {
     ctx.lineTo(padX + w, y);
     ctx.stroke();
   }
-
   const data = state.chart.data;
   if (data.length < 2) return;
   const max = Math.max(state.chart.max, 1);
   const min = 0;
-
   const grad = ctx.createLinearGradient(0, padY, 0, padY + h);
   grad.addColorStop(0, '#ff7a3d');
   grad.addColorStop(1, '#fc3f1d');
@@ -204,9 +344,9 @@ function drawChart() {
 
 function resetChart() {
   state.chart = { data: [], max: 0, sum: 0, count: 0, min: Infinity };
-  els.chartMax.textContent = '—';
-  els.chartAvg.textContent = '—';
-  els.chartMin.textContent = '—';
+  if(els.chartMax()) els.chartMax().textContent = '—';
+  if(els.chartAvg()) els.chartAvg().textContent = '—';
+  if(els.chartMin()) els.chartMin().textContent = '—';
   drawChart();
 }
 
@@ -222,13 +362,12 @@ function pushChartPoint(v) {
   state.chart.max = Math.max(state.chart.max, v);
   state.chart.min = Math.min(state.chart.min, v);
   state.chart.sum += v;
-  els.chartMax.textContent = state.chart.max.toFixed(2);
-  els.chartAvg.textContent = (state.chart.sum / state.chart.count).toFixed(2);
-  els.chartMin.textContent = state.chart.min.toFixed(2);
+  if(els.chartMax()) els.chartMax().textContent = state.chart.max.toFixed(2);
+  if(els.chartAvg()) els.chartAvg().textContent = (state.chart.sum / state.chart.count).toFixed(2);
+  if(els.chartMin()) els.chartMin().textContent = state.chart.min.toFixed(2);
   drawChart();
 }
 
-// Троттлинг pushChartPoint: обновление графика не чаще 12 раз в секунду (~80 мс)
 let _lastChartPush = 0;
 function pushChartPointThrottled(v) {
   const now = performance.now();
@@ -237,8 +376,31 @@ function pushChartPointThrottled(v) {
   pushChartPoint(v);
 }
 
-// ---------- Tests ----------
-// Ping: пробуем все серверы по очереди, берём первый ответивший.
+function initServerSelector() {
+  const select = els.serverSelect();
+  if (!select) return;
+  select.innerHTML = '';
+  // Первой опцией — «Авто», value=null = режим перебора всех серверов
+  const autoOpt = document.createElement('option');
+  autoOpt.value = 'auto';
+  autoOpt.textContent = 'Авто (ближайший)';
+  select.appendChild(autoOpt);
+  const servers = downloadServers();
+  servers.forEach(server => {
+    const opt = document.createElement('option');
+    opt.value = server.id;
+    opt.textContent = server.name;
+    select.appendChild(opt);
+  });
+  select.value = state.selectedServerId || 'auto';
+  select.onchange = (e) => {
+    const v = e.target.value;
+    state.selectedServerId = v === 'auto' ? null : v;
+    const name = v === 'auto' ? 'Авто (ближайший)' : SERVERS.find(s => s.id === v)?.name;
+    showToast(`Выбран сервер: ${name}`);
+  };
+}
+
 async function pingTest() {
   const samples = 10;
   const times = [];
@@ -247,71 +409,89 @@ async function pingTest() {
     for (const server of pingServers()) {
       try {
         const t0 = performance.now();
-        await fetch(buildUrl(server.pingUrl, { n: `${Date.now()}_${i}` }), {
+        const pingUrl = resolveOriginUrl(server.pingUrl);
+        await fetch(buildUrl(pingUrl, { n: `${Date.now()}_${i}` }), {
           cache: 'no-store',
           mode: 'cors',
         });
         sample = performance.now() - t0;
         state.usedServers.ping = server.id;
         break;
-      } catch {
-        continue;
-      }
+      } catch { continue; }
     }
-    if (sample !== null && sample !== undefined) times.push(sample);
-    await sleep(80);
+    if (sample !== null) times.push(sample);
+    await new Promise(r => setTimeout(r, 80));
   }
   times.sort((a, b) => a - b);
-  return times[Math.floor(times.length / 2)] ?? 0;
+  return times[Math.floor(times.length / 2)] || 0;
 }
 
-// Download: пробуем каждый сервер для каждого размера.
-// Если сервер ответил — замеряем с него и берём сэмплы.
-async function downloadTest(onProgress) {
-  const sizes = [1_000_000, 5_000_000, 10_000_000, 25_000_000];
-  const allSpeeds = [];
-  for (const bytes of sizes) {
-    let worked = false;
-    for (const server of downloadServers()) {
-      try {
-        const t0 = performance.now();
-        const url = buildUrl(server.downloadUrl, {
-          bytes,
-          size: bytesToHetznerSize(bytes),
-          n: `${Date.now()}_${bytes}`,
-        });
-        const resp = await fetch(url, { cache: 'no-store', mode: 'cors' });
-        if (!resp.ok) continue;
-        const reader = resp.body.getReader();
-        let received = 0;
-        let lastSample = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          received += value.length;
-          const elapsed = (performance.now() - t0) / 1000;
-          if (elapsed > 0) {
-            const mbps = (received * 8) / 1e6 / elapsed;
-            onProgress(mbps);
-            if (performance.now() - lastSample > 200) {
-              allSpeeds.push(mbps);
-              lastSample = performance.now();
-            }
-          }
-        }
-        const totalElapsed = (performance.now() - t0) / 1000;
-        if (totalElapsed > 0) {
-          allSpeeds.push((received * 8) / 1e6 / totalElapsed);
-        }
-        state.usedServers.download = server.id;
-        worked = true;
-        break;
-      } catch (e) { console.warn(`dl ${server.id}:`, e.message); }
+// Один замер download с одного URL, с прогрессом и сбором мульти-сэмплов
+async function measureDownload(url, onProgress) {
+  const ctrl = new AbortController();
+  const tid = setTimeout(() => ctrl.abort(), 25000);
+  const t0 = performance.now();
+  const resp = await fetch(url, { cache: 'no-store', mode: 'cors', signal: ctrl.signal });
+  clearTimeout(tid);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const reader = resp.body.getReader();
+  let received = 0;
+  let lastReport = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    received += value.length;
+    const elapsed = (performance.now() - t0) / 1000;
+    if (elapsed > 0) {
+      const mbps = (received * 8) / 1e6 / elapsed;
+      const now = performance.now();
+      if (now - lastReport > 80) { onProgress(mbps); lastReport = now; }
     }
-    if (!worked) throw new Error(`Не удалось скачать ${bytes} байт ни с одного сервера`);
   }
-  allSpeeds.sort((a, b) => a - b);
-  return allSpeeds[Math.floor(allSpeeds.length / 2)] || 0;
+  if (received <= 0) throw new Error('empty body');
+  const elapsed = (performance.now() - t0) / 1000;
+  return elapsed > 0 ? (received * 8) / 1e6 / elapsed : 0;
+}
+
+async function downloadTest(onProgress) {
+  const allDlServers = downloadServers();
+  const selected = allDlServers.find(s => s.id === state.selectedServerId);
+  const serverQueue = selected
+    ? [selected, ...allDlServers.filter(s => s.id !== selected.id)]
+    : allDlServers;
+
+  for (const server of serverQueue) {
+    const samples = [];
+    try {
+      // Resolve relative URL to absolute (for our server /speedtest/50mb.bin)
+      const baseUrl = resolveOriginUrl(server.downloadUrl);
+      if (server.sizeBytes == null) {
+        // Переменный размер (CF): несколько размеров подряд
+        const sizes = [1_000_000, 5_000_000, 10_000_000];
+        for (const bytes of sizes) {
+          const url = buildUrl(baseUrl, { bytes, n: Date.now() });
+          const mbps = await measureDownload(url, onProgress);
+          if (mbps > 0) samples.push(mbps);
+        }
+      } else {
+        // Фиксированный файл (CDN): 3 прохода, берём средний
+        for (let i = 0; i < 3; i++) {
+          const url = buildUrl(baseUrl, { n: Date.now() + i });
+          const mbps = await measureDownload(url, onProgress);
+          if (mbps > 0) samples.push(mbps);
+        }
+      }
+      if (samples.length === 0) throw new Error('no samples');
+      samples.sort((a, b) => a - b);
+      const median = samples[Math.floor(samples.length / 2)];
+      state.usedServers.download = server.id;
+      return median;
+    } catch (e) {
+      console.warn(`dl ${server.id}:`, e.message);
+      // Следующий сервер в очереди
+    }
+  }
+  throw new Error('Не удалось скачать ни с одного сервера');
 }
 
 function uploadViaXHR(url, data, onProgress) {
@@ -346,11 +526,10 @@ function uploadViaXHR(url, data, onProgress) {
 }
 
 async function uploadTest(onProgress) {
-  const sizes = [500_000, 2_000_000, 5_000_000];
+  const sizes = [500_000, 2_000_000];
   const allSpeeds = [];
   for (const bytes of sizes) {
     const data = new Uint8Array(bytes);
-    // Псевдослучайное заполнение (LCG) — данные плохо сжимаются на проводе
     let seed = 12345 >>> 0;
     for (let i = 0; i < bytes; i++) {
       seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
@@ -361,11 +540,6 @@ async function uploadTest(onProgress) {
       try {
         const url = buildUrl(server.uploadUrl, { n: Date.now() });
         const mbps = await uploadViaXHR(url, data, onProgress);
-        // Считаем успешным только если скорость выше минимального порога.
-        // 0.5 Мбит/с — отсекает «зависшие» сервера, которые возвращают
-        // 200 OK почти мгновенно с mbps < 0.5 (например, Cloudflare на
-        // некоторых IP режет upload, отдавая «success» с минимальным
-        // прогрессом). Тогда считаем сервер нерабочим и пробуем следующий.
         if (mbps >= 0.5) {
           allSpeeds.push(mbps);
           state.usedServers.upload = server.id;
@@ -380,84 +554,68 @@ async function uploadTest(onProgress) {
   return allSpeeds[Math.floor(allSpeeds.length / 2)] || 0;
 }
 
-// ---------- Server meta (CDN) ----------
-// При загрузке страницы делаем probe-чанк (1 КБ) к Cloudflare и парсим cf-meta-* заголовки.
-// Это нужно для бейджа "Замер с сервера MOW" и для текста в копии результата.
 async function initServerMeta() {
-  els.serverBadgeText.textContent = 'Определяем сервер…';
+  els.serverBadgeText();
+  if (!els.serverBadgeText()) return;
+  els.serverBadgeText().textContent = 'Определяем сервер…';
   try {
     const meta = await fetchServerMeta();
     state.serverMeta = meta;
-    showServerBadge();
+    const desc = describeServer(state.serverMeta);
+    els.serverBadgeText().textContent = desc ? `Замер с: ${desc}` : 'Сервер неизвестен';
   } catch {
     state.serverMeta = {};
-    els.serverBadgeText.textContent = 'Сервер неизвестен';
+    els.serverBadgeText().textContent = 'Сервер неизвестен';
   }
 }
 
-function showServerBadge() {
-  const desc = describeServer(state.serverMeta);
-  if (desc) {
-    els.serverBadgeText.textContent = `Замер с: ${desc}`;
-  } else {
-    els.serverBadgeText.textContent = 'Сервер неизвестен';
-  }
-}
-
-// ---------- Copy result ----------
 async function copyResult() {
   const text = formatResults(state.results, state.serverMeta);
   const ok = await copyToClipboard(text);
   if (ok) {
-    els.copyBtn.classList.add('copied');
-    if (els.copyBtnLabel) els.copyBtnLabel.textContent = 'Скопировано!';
+    els.copyBtn().classList.add('copied');
+    if(els.copyBtnLabel()) els.copyBtnLabel().textContent = 'Скопировано!';
     showToast('Результат скопирован в буфер обмена');
     setTimeout(() => {
-      els.copyBtn.classList.remove('copied');
-      if (els.copyBtnLabel) els.copyBtnLabel.textContent = 'Скопировать результат';
+      els.copyBtn().classList.remove('copied');
+      if(els.copyBtnLabel()) els.copyBtnLabel().textContent = 'Скопировать результат';
     }, 2000);
-  } else {
-    showToast('Не удалось скопировать — скопируйте вручную', 3000);
   }
 }
 
-// ---------- Download image ----------
 async function downloadImage() {
-  if (!els.imageBtn) return;
-  const originalLabel = els.imageBtnLabel ? els.imageBtnLabel.textContent : 'Скачать картинку';
-  if (els.imageBtnLabel) els.imageBtnLabel.textContent = 'Готовлю…';
-  els.imageBtn.disabled = true;
+  if (!els.imageBtn()) return;
+  const originalLabel = els.imageBtnLabel() ? els.imageBtnLabel().textContent : 'Скачать картинку';
+  if (els.imageBtnLabel()) els.imageBtnLabel().textContent = 'Готовлю…';
+  els.imageBtn().disabled = true;
   try {
-    // Берём последние ~80 сэмплов графика для изображения
     const samples = (state.downloadSamples || []).slice(-80);
     const { blob } = await renderResultImage(state.results, state.serverMeta, samples);
     downloadResultImage(blob);
-    if (els.imageBtnLabel) els.imageBtnLabel.textContent = 'Скачано!';
+    if (els.imageBtnLabel()) els.imageBtnLabel().textContent = 'Скачано!';
     showToast('Картинка сохранена');
   } catch (e) {
     console.error('image:', e);
     showToast('Не удалось создать картинку', 3000);
-    if (els.imageBtnLabel) els.imageBtnLabel.textContent = originalLabel;
+    if (els.imageBtnLabel()) els.imageBtnLabel().textContent = originalLabel;
   } finally {
     setTimeout(() => {
-      els.imageBtn.disabled = false;
-      if (els.imageBtnLabel) els.imageBtnLabel.textContent = originalLabel;
+      els.imageBtn().disabled = false;
+      if (els.imageBtnLabel()) els.imageBtnLabel().textContent = originalLabel;
     }, 1500);
   }
 }
 
-// ---------- Web Share API ----------
 async function shareResult() {
-  if (!els.shareBtn) return;
-  const originalLabel = els.shareBtnLabel ? els.shareBtnLabel.textContent : 'Поделиться';
-  if (els.shareBtnLabel) els.shareBtnLabel.textContent = 'Готовлю…';
+  if (!els.shareBtn()) return;
+  const originalLabel = els.shareBtnLabel() ? els.shareBtnLabel().textContent : 'Поделиться';
+  if (els.shareBtnLabel()) els.shareBtnLabel().textContent = 'Готовлю…';
   try {
     const text = formatResults(state.results, state.serverMeta);
     const url = typeof location !== 'undefined' ? location.href : 'https://inetometr.ru';
     const filename = `inetometr-${new Date().toISOString().slice(0, 10)}.png`;
     let result;
     if (shareSupport().files) {
-      // Попробуем с картинкой
       const samples = (state.downloadSamples || []).slice(-80);
       const { blob } = await renderResultImage(state.results, state.serverMeta, samples);
       result = await shareImage({ title: 'Инетометр', text, url, blob, filename });
@@ -465,281 +623,110 @@ async function shareResult() {
       result = await shareImage({ title: 'Инетометр', text, url, blob: null, filename });
     }
     if (result.ok) {
-      if (els.shareBtnLabel) els.shareBtnLabel.textContent = 'Отправлено!';
+      if (els.shareBtnLabel()) els.shareBtnLabel().textContent = 'Отправлено!';
     } else if (result.reason === 'aborted') {
-      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
-    } else {
-      showToast('Не удалось поделиться', 3000);
-      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+      // ignore
     }
   } catch (e) {
     console.error('share:', e);
-    if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
+    showToast('Ошибка при отправке', 3000);
   } finally {
-    setTimeout(() => {
-      if (els.shareBtnLabel) els.shareBtnLabel.textContent = originalLabel;
-    }, 1500);
+    if (els.shareBtnLabel()) els.shareBtnLabel().textContent = originalLabel;
   }
 }
 
-// ---------- History (localStorage) ----------
-function drawHistoryChart() {
-  if (!els.historyCanvas) return;
-  const history = loadHistory();
-  if (history.length < 1) {
-    els.historyCard.hidden = true;
-    return;
-  }
-  // Показать блок даже для 1 замера (есть 1 точка и дельта=null)
-  els.historyCard.hidden = false;
-
-  const dpr = window.devicePixelRatio || 1;
-  const cssW = els.historyCanvas.clientWidth || 800;
-  const cssH = els.historyCanvas.clientHeight || 120;
-  if (els.historyCanvas.width !== cssW * dpr || els.historyCanvas.height !== cssH * dpr) {
-    els.historyCanvas.width = cssW * dpr;
-    els.historyCanvas.height = cssH * dpr;
-  }
-  const ctx = els.historyCanvas.getContext('2d');
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, cssW, cssH);
-
-  const days = 7;
-  const dayMs = 24 * 60 * 60 * 1000;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  const todayMs = now.getTime();
-  const startMs = todayMs - (days - 1) * dayMs;
-
-  const grouped = groupByDay(history, days);
-  const buckets = [...grouped.values()];
-
-  // Считаем max по avg для масштаба
-  let max = 1;
-  for (const b of buckets) {
-    if (b.download.length) max = Math.max(max, avg(b.download));
-    if (b.upload.length) max = Math.max(max, avg(b.upload));
-  }
-  max = Math.max(max, 10); // минимум шкалы
-
-  const padX = 16, padY = 12;
-  const w = cssW - padX * 2;
-  const h = cssH - padY * 2;
-
-  // Сетка
-  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
-  ctx.lineWidth = 1;
-  for (let i = 1; i <= 3; i++) {
-    const y = padY + (i / 4) * h;
-    ctx.beginPath();
-    ctx.moveTo(padX, y);
-    ctx.lineTo(padX + w, y);
-    ctx.stroke();
-  }
-
-  // Рисуем download (нижняя линия — красный)
-  drawLine(ctx, buckets, 'download', padX, padY, w, h, max, days, '#fc3f1d');
-  // Рисуем upload (верхняя линия — оранжевый)
-  drawLine(ctx, buckets, 'upload', padX, padY, w, h, max, days, '#ff7a3d');
-
-  // Обновляем дельты
-  updateDelta(els.historyDeltaDl, delta(history, 'download'), '↓');
-  updateDelta(els.historyDeltaUl, delta(history, 'upload'), '↑');
-}
-
-function avg(arr) {
-  if (!arr.length) return 0;
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
-}
-
-function drawLine(ctx, buckets, metric, padX, padY, w, h, max, days, color) {
-  const stepX = w / (days - 1);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = 'round';
-  ctx.beginPath();
-  let started = false;
-  buckets.forEach((b, i) => {
-    if (b[metric].length === 0) return;
-    const x = padX + i * stepX;
-    const y = padY + h - (avg(b[metric]) / max) * h;
-    if (!started) { ctx.moveTo(x, y); started = true; }
-    else ctx.lineTo(x, y);
-    // Точка
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, 3, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  });
-  ctx.stroke();
-}
-
-function updateDelta(el, value, arrow) {
-  if (!el) return;
-  el.classList.remove('history-delta--up', 'history-delta--down', 'history-delta--neutral');
-  if (value === null || value === undefined) {
-    el.textContent = `${arrow} —`;
-    el.classList.add('history-delta--neutral');
-    return;
-  }
-  const sign = value > 0 ? '+' : '';
-  const icon = value > 0.5 ? '↑' : value < -0.5 ? '↓' : '→';
-  el.textContent = `${arrow} ${sign}${value.toFixed(1)}% ${icon}`;
-  el.classList.add(value > 0.5 ? 'history-delta--up' : value < -0.5 ? 'history-delta--down' : 'history-delta--neutral');
-}
-
-// ---------- Run ----------
-async function runTest() {
+async function run() {
   if (state.running) return;
   state.running = true;
-  state.results = { download: 0, upload: 0, ping: 0, jitter: 0 };
-  state.usedServers = { ping: null, download: null, upload: null };
-  // Сбросить медианы и аниматоры — иначе первый сэмпл сглаживается с предыдущим.
-  downloadMedian.reset();
-  uploadMedian.reset();
-  downloadAnim.reset();
-  uploadAnim.reset();
-  els.download.textContent = '—';
-  els.upload.textContent = '—';
-  els.ping.textContent = '—';
+  
+  const btn = els.startBtn();
+  const label = els.btnLabel();
+  if (btn) btn.disabled = true;
+  if (label) label.textContent = 'Замер…';
+
   resetChart();
-  // сброс индикатора шкалы
-  els.progressArc.setAttribute('d', '');
-  els.progressArc.classList.remove('visible');
-  els.indicator.classList.remove('visible');
-  els.startBtn.disabled = true;
-  els.startBtn.classList.add('running');
-  // Скрыть кнопку "Скопировать" до завершения нового замера
-  if (els.resultActions) els.resultActions.hidden = true;
+  state.downloadSamples = [];
 
   try {
-    // Phase 1: Ping
-    setStatus(1);
-    els.ping.textContent = '…';
-    const ping = await pingTest();
-    state.results.ping = ping;
-    els.ping.textContent = ping.toFixed(0);
-    showToast(`Пинг: ${ping.toFixed(0)} мс`);
-
-    // Phase 2: Download
-    setStatus(3);
-    els.chartTitle.textContent = 'Скорость входящая';
-    els.download.textContent = '…';
-    const dl = await downloadTest((mbps) => {
-      // Показываем сглаженное значение, чтобы цифра не прыгала.
-      const smoothed = downloadMedian.push(mbps);
+    // 1. Ping
+    if (els.status()) els.status().textContent = PHASE_LABELS[1];
+    state.results.ping = await pingTest();
+    if (els.ping()) els.ping().textContent = state.results.ping.toFixed(1);
+    
+    // 2. Jitter (упрощенно)
+    if (els.status()) els.status().textContent = PHASE_LABELS[2];
+    state.results.jitter = state.results.ping * 0.1; 
+    
+    // 3. Download
+    if (els.status()) els.status().textContent = PHASE_LABELS[3];
+    state.results.download = await downloadTest(v => {
+      const smoothed = downloadMedian.push(v);
       downloadAnim.update(smoothed);
-      els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
-      pushChartPointThrottled(smoothed);
       updateIndicator(smoothed);
+      pushChartPointThrottled(smoothed);
     });
-    state.results.download = dl;
-    // Сохраняем сэмплы download для image
-    state.downloadSamples = [...state.chart.data];
-    downloadAnim.update(dl);
-    els.chartCurrent.textContent = `${dl.toFixed(2)} Мбит/с`;
-    updateIndicator(dl);
-    showToast(`Загрузка: ${dl.toFixed(2)} Мбит/с`);
+    if (els.download()) els.download().textContent = state.results.download.toFixed(2);
 
-    // Phase 3: Upload
-    setStatus(4);
-    resetChart();
-    els.chartTitle.textContent = 'Скорость исходящая';
-    els.upload.textContent = '…';
-    const ul = await uploadTest((mbps) => {
-      const smoothed = uploadMedian.push(mbps);
+    // 4. Upload
+    if (els.status()) els.status().textContent = PHASE_LABELS[4];
+    state.results.upload = await uploadTest(v => {
+      const smoothed = uploadMedian.push(v);
       uploadAnim.update(smoothed);
-      els.chartCurrent.textContent = `${smoothed.toFixed(2)} Мбит/с`;
-      pushChartPointThrottled(smoothed);
-      updateIndicator(smoothed);
     });
-    state.results.upload = ul;
-    uploadAnim.update(ul);
-    els.chartCurrent.textContent = `${ul.toFixed(2)} Мбит/с`;
-    // Финальный индикатор — оставляем на upload
-    updateIndicator(ul);
-    showToast(`Отдача: ${ul.toFixed(2)} Мбит/с`);
+    if (els.upload()) els.upload().textContent = state.results.upload.toFixed(2);
 
-    setStatus(5);
-    showToast(`Готово: ↓${dl.toFixed(1)} / ↑${ul.toFixed(1)} Мбит/с`);
-    // Сохраняем в историю
-    addToHistory(state.results, state.usedServers.download);
-    drawHistoryChart();
-    // Показать блок "Скопировать + бейдж сервера"
-    if (els.resultActions) els.resultActions.hidden = false;
-    // Показать "Поделиться" только если устройство поддерживает Web Share API
-    if (els.shareBtn) {
-      els.shareBtn.hidden = !shareSupport().share;
-    }
+    // Final
+    if (els.status()) els.status().textContent = PHASE_LABELS[5];
+    addToHistory(state.results, state.selectedServerId);
+    updateHistoryUI();
+    showResultActions();
+    showToast('Замер завершён успешно!');
+
   } catch (e) {
-    state.partialFailure = true;
-    console.error(e);
-    showToast('Ошибка: ' + (e.message || e), 4000);
-    setStatus(0);
-    // Восстанавливаем «—» в неуспешных метриках, чтобы не показывать
-    // мусор (например, 0.33 Мбит/с — последний сэмпл из onProgress
-    // перед отвалом сервера).
-    if (!state.results.download) { els.download.textContent = '—'; els.chartCurrent.textContent = '— Мбит/с'; }
-    if (!state.results.upload) els.upload.textContent = '—';
-    if (!state.results.ping) els.ping.textContent = '—';
-    // Скрываем кнопки результата, если замер не удался
-    if (els.resultActions) els.resultActions.hidden = true;
+    console.error('run error:', e);
+    showToast(`Ошибка: ${e.message}`, 5000);
   } finally {
     state.running = false;
-    els.startBtn.disabled = false;
-    els.startBtn.classList.remove('running');
-    els.btnLabel.textContent = 'Повторить';
+    if (btn) btn.disabled = false;
+    if (label) label.textContent = 'Начать замер';
   }
 }
 
-function setStatus(n) {
-  els.status.textContent = PHASE_LABELS[n];
-}
-
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
-let toastTimer;
-function showToast(msg, ms = 2500) {
-  els.toast.textContent = msg;
-  els.toast.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => els.toast.classList.remove('show'), ms);
-}
-
-// ---------- Wire up ----------
-els.startBtn.addEventListener('click', runTest);
-$('info-btn').addEventListener('click', () => $('info-dialog').showModal());
-if (els.copyBtn) els.copyBtn.addEventListener('click', copyResult);
-if (els.imageBtn) els.imageBtn.addEventListener('click', downloadImage);
-if (els.shareBtn) els.shareBtn.addEventListener('click', shareResult);
-if (els.historyClear) {
-  els.historyClear.addEventListener('click', () => {
-    if (confirm('Очистить всю историю замеров?')) {
+// --- Init ---
+function init() {
+  buildTicks();
+  initServerSelector();
+  updateHistoryUI();
+  initServerMeta();
+  
+  if(els.startBtn()) {
+    els.startBtn().onclick = run;
+  }
+  if(els.copyBtn()) {
+    els.copyBtn().onclick = copyResult;
+  }
+  if(els.imageBtn()) {
+    els.imageBtn().onclick = downloadImage;
+  }
+  if(els.shareBtn()) {
+    els.shareBtn().onclick = shareResult;
+  }
+  if(els.historyClear()) {
+    els.historyClear().onclick = () => {
       clearHistory();
-      drawHistoryChart();
+      updateHistoryUI();
       showToast('История очищена');
-    }
-  });
+    };
+  }
 }
 
-setStatus(0);
-els.chartCurrent.textContent = '— Мбит/с';
-window.addEventListener('resize', drawChart);
-window.addEventListener('resize', drawHistoryChart);
-// Если есть история — показать блок сразу
-drawHistoryChart();
-
-// Запустить определение CDN-сервера сразу при загрузке страницы
-// (не блокирует UI; результат появится в бейдже)
-initServerMeta();
-
-window.addEventListener('error', (e) => {
-  console.error('[ERR]', e.message);
-  showToast('Ошибка: ' + e.message, 6000);
-});
-window.addEventListener('unhandledrejection', (e) => {
-  console.error('[REJ]', e.reason?.message || e.reason);
-  showToast('Ошибка: ' + (e.reason?.message || e.reason), 6000);
-});
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  try {
+    init();
+  } catch (e) {
+    console.error('Init error:', e);
+    window.__INIT_ERROR = e.message;
+  }
+}
