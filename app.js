@@ -463,22 +463,26 @@ async function downloadTest(onProgress) {
   for (const server of serverQueue) {
     const samples = [];
     try {
-      // Resolve relative URL to absolute (for our server /speedtest/50mb.bin)
+      // Resolve relative URL to absolute (for our server /speedtest/5mb.bin)
       const baseUrl = resolveOriginUrl(server.downloadUrl);
       if (server.sizeBytes == null) {
-        // Переменный размер (CF): несколько размеров подряд
-        const sizes = [1_000_000, 5_000_000, 10_000_000];
-        for (const bytes of sizes) {
-          const url = buildUrl(baseUrl, { bytes, n: Date.now() });
-          const mbps = await measureDownload(url, onProgress);
-          if (mbps > 0) samples.push(mbps);
+        // Переменный размер (CF): два прохода, три размера
+        for (let pass = 0; pass < 2; pass++) {
+          const sizes = [1_000_000, 5_000_000, 10_000_000];
+          for (const bytes of sizes) {
+            const url = buildUrl(baseUrl, { bytes, n: Date.now() + pass * 1000 });
+            const mbps = await measureDownload(url, onProgress);
+            if (mbps > 0) samples.push(mbps);
+          }
         }
       } else {
-        // Фиксированный файл (CDN): 3 прохода, берём средний
-        for (let i = 0; i < 3; i++) {
-          const url = buildUrl(baseUrl, { n: Date.now() + i });
-          const mbps = await measureDownload(url, onProgress);
-          if (mbps > 0) samples.push(mbps);
+        // Фиксированный файл (CDN): два прохода
+        for (let pass = 0; pass < 2; pass++) {
+          for (let i = 0; i < 1; i++) {
+            const url = buildUrl(baseUrl, { n: Date.now() + pass * 1000 + i });
+            const mbps = await measureDownload(url, onProgress);
+            if (mbps > 0) samples.push(mbps);
+          }
         }
       }
       if (samples.length === 0) throw new Error('no samples');
@@ -526,7 +530,7 @@ function uploadViaXHR(url, data, onProgress) {
 }
 
 async function uploadTest(onProgress) {
-  const sizes = [500_000, 2_000_000];
+  const sizes = [2_000_000]; // 2 MB
   const allSpeeds = [];
   for (const bytes of sizes) {
     const data = new Uint8Array(bytes);
