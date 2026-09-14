@@ -129,7 +129,7 @@ PROD_FILES=(
   styles.v12.css
   app.js
   og-image.svg
-  speedtest/5mb.bin
+  speedtest/50mb.bin
 )
 for f in "${PROD_FILES[@]}"; do
   if [ ! -f "$SRC_DIR/$f" ]; then
