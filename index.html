@@ -9,8 +9,9 @@
 <title>Инетометр — измерить скорость интернета</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" href="styles.v12.css?v=4" as="style">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=YS+Display:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.v12.css?v=2">
+<link rel="stylesheet" href="styles.v12.css?v=4">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='none' stroke='%23fc3f1d' stroke-width='10'/></svg>">
 
 <!-- Open Graph (Facebook, VK, Telegram, WhatsApp, LinkedIn) -->
@@ -92,12 +93,13 @@
 
       <!-- Состояние: текущая фаза -->
       <div class="gauge-status" id="gauge-status" role="status" aria-live="polite">Готов к замеру</div>
-    </section>
 
-    <!-- Кнопка замера -->
-    <button class="primary-btn" id="start-btn" aria-controls="gauge-section" aria-describedby="gauge-status">
-      <span class="btn-label">Начать замер</span>
-    </button>
+      <!-- Кнопка замера — ВНУТРИ gauge-section, чтобы position:absolute bottom:0
+           был относительно низа полусферы, а не body/.app. -->
+      <button class="primary-btn" id="start-btn" aria-controls="gauge-section" aria-describedby="gauge-status">
+        <span class="btn-label">Начать замер</span>
+      </button>
+    </section>
 
     <!-- График скорости -->
     <section class="chart-card" id="chart-card" aria-labelledby="chart-title">
