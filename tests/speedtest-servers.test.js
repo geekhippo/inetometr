@@ -41,18 +41,18 @@ describe('downloadServers', () => {
       expect(ds[i].priority).toBeGreaterThanOrEqual(ds[i - 1].priority);
     }
   });
-  it('cloudflare — первый', () => {
-    expect(downloadServers()[0].id).toBe('cloudflare');
-  });
+  it('inetometr — первый', () => {
+      expect(downloadServers()[0].id).toBe('inetometr');
+    });
 });
 
 describe('uploadServers', () => {
-  it('cloudflare и httpbin имеют upload', () => {
-    const us = uploadServers();
-    const ids = us.map((s) => s.id);
-    expect(ids).toContain('cloudflare');
-    expect(ids).toContain('httpbin');
-  });
+  it('cloudflare и jsdelivr имеют upload', () => {
+      const us = uploadServers();
+      const ids = us.map((s) => s.id);
+      expect(ids).toContain('cloudflare');
+      expect(ids).toContain('jsdelivr');
+    });
   it('hetzner НЕ имеет upload', () => {
     const us = uploadServers();
     expect(us.find((s) => s.id === 'hetzner')).toBeUndefined();
@@ -60,12 +60,12 @@ describe('uploadServers', () => {
 });
 
 describe('pingServers', () => {
-  it('cloudflare и hetzner имеют ping', () => {
-    const ps = pingServers();
-    const ids = ps.map((s) => s.id);
-    expect(ids).toContain('cloudflare');
-    expect(ids).toContain('hetzner');
-  });
+  it('cloudflare и jsdelivr имеют ping', () => {
+      const ps = pingServers();
+      const ids = ps.map((s) => s.id);
+      expect(ids).toContain('cloudflare');
+      expect(ids).toContain('jsdelivr');
+    });
 });
 
 describe('buildUrl', () => {

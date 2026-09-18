@@ -83,18 +83,21 @@ describe('clearHistory', () => {
 
 describe('groupByDay', () => {
   it('группирует замеры по дням', () => {
-    const now = new Date('2026-09-02T12:00:00Z').getTime();
-    const dayMs = 24 * 60 * 60 * 1000;
-    const history = [
-      { t: now, download: 100, upload: 50, ping: 10 },
-      { t: now - 2 * dayMs, download: 80, upload: 40, ping: 15 },
-      { t: now - 3 * dayMs, download: 60, upload: 30, ping: 20 },
-    ];
-    const grouped = groupByDay(history, 7);
-    const arr = [...grouped.values()];
-    const total = arr.reduce((s, b) => s + b.count, 0);
-    expect(total).toBe(3);
-  });
+      vi.useFakeTimers();
+      const now = new Date('2026-09-02T12:00:00Z').getTime();
+      vi.setSystemTime(now);
+      const dayMs = 24 * 60 * 60 * 1000;
+      const history = [
+        { t: now, download: 100, upload: 50, ping: 10 },
+        { t: now - 2 * dayMs, download: 80, upload: 40, ping: 15 },
+        { t: now - 3 * dayMs, download: 60, upload: 30, ping: 20 },
+      ];
+      const grouped = groupByDay(history, 7);
+      vi.restoreAllMocks();
+      const arr = [...grouped.values()];
+      const total = arr.reduce((s, b) => s + b.count, 0);
+      expect(total).toBe(3);
+    });
 
   it('возвращает `days` бакетов даже для пустых дней', () => {
     const grouped = groupByDay([], 7);
