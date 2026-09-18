@@ -11,18 +11,68 @@ const VIEWPORTS = [
 ];
 
 for (const vp of VIEWPORTS) {
-  test(`нет горизонтального скролла @ ${vp.name}`, async ({ page }) => {
+test(`нет горизонтального скролла @ ${vp.name}`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await page.goto('/index.html?v=responsive');
-    const overflow = await page.evaluate(() => {
-      return {
-        scrollWidth: document.documentElement.scrollWidth,
-        clientWidth: document.documentElement.clientWidth,
-      };
+    await page.waitForTimeout(100);
+    const overflowInfo = await page.evaluate(() => {
+      const { scrollWidth, clientWidth } = document.documentElement;
+      const app = document.querySelector('.app');
+      const topbar = document.querySelector('.topbar');
+      const button = document.querySelector('#info-btn');
+      const info = { ok: scrollWidth <= clientWidth + 1, scrollWidth, clientWidth };
+      if (!info.ok) {
+        const details = [];
+        const logEl = (el, name) => {
+          if (!el) { details.push(`${name}: null`); return; }
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          details.push(`${name}: width=${rect.width}, height=${rect.height}, left=${rect.left}, right=${rect.right}, top=${rect.top}, bottom=${rect.bottom}`);
+          details.push(`  style: width=${style.width}, height=${style.height}, padding-left=${style.paddingLeft}, padding-right=${style.paddingRight}, margin-left=${style.marginLeft}, margin-right=${style.marginTop}, box-sizing=${style.boxSizing}`);
+        };
+        logEl(document.documentElement, 'html');
+        logEl(document.body, 'body');
+        logEl(app, '.app');
+        logEl(topbar, '.topbar');
+        logEl(button, '#info-btn');
+        // check overflow via left/right
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, null);
+        let node;
+        const offenders = [];
+        while (node = walker.nextNode()) {
+          const rect = node.getBoundingClientRect();
+          if (rect.right > clientWidth + 1 || rect.left < -1) {
+            offenders.push({
+              tag: node.tagName,
+              id: node.id,
+              class: node.className,
+              width: rect.width,
+              left: rect.left,
+              right: rect.right,
+              styleWidth: window.getComputedStyle(node).width,
+              stylePaddingL: window.getComputedStyle(node).paddingLeft,
+              stylePaddingR: window.getComputedStyle(node).paddingRight,
+              styleMarginL: window.getComputedStyle(node).marginLeft,
+              styleMarginR: window.getComputedStyle(node).marginRight,
+            });
+          }
+        }
+        if (offenders.length > 0) {
+          details.push(`Offending elements count: ${offenders.length}`);
+          details.push(JSON.stringify(offenders.slice(0,10), null, 2));
+        } else {
+          details.push(`No element exceeds clientWidth bounds`);
+        }
+        info.details = details.join('\n');
+      }
+      return info;
     });
-    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    if (!overflowInfo.ok) {
+      console.log(`Horizontal overflow: ${overflowInfo.scrollWidth - overflowInfo.clientWidth}px`);
+      console.log(overflowInfo.details);
+    }
+    expect(overflowInfo.ok).toBe(true);
   });
-
   test(`нет вертикального скролла @ ${vp.name} (для desktop 800px)`, async ({ page }) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await page.goto('/index.html?v=responsive');
